@@ -109,6 +109,7 @@ async function renderMultipleLines(data: StatusJSON) {
     const hasCompactionWidget = lines.some(line => line.some(item => item.type === 'compaction-counter'));
     const hasThinkingEffortWidget = lines.some(line => line.some(item => item.type === 'thinking-effort'));
     const hasSessionNameWidget = lines.some(line => line.some(item => item.type === 'session-name'));
+    const hasLastTurnTokensWidget = lines.some(line => line.some(item => item.type === 'tokens-last-turn'));
     const needsTranscriptThinkingEffort = hasThinkingEffortWidget
         && (!data.effort || !('level' in data.effort));
     const requestedSpeedWindows = new Set<number>();
@@ -128,7 +129,8 @@ async function renderMultipleLines(data: StatusJSON) {
             speedWindowSeconds: Array.from(requestedSpeedWindows),
             includeCompactionStats: hasCompactionWidget,
             includeThinkingEffort: needsTranscriptThinkingEffort,
-            includeSessionName: hasSessionNameWidget
+            includeSessionName: hasSessionNameWidget,
+            includeLastTurnTokens: hasLastTurnTokensWidget
         })
         : Promise.resolve(null);
     const [transcriptAnalysis, usageData, claudeStatusData] = await Promise.all([

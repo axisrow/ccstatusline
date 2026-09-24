@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import path from 'node:path';
 
 import type {
+    LastTurnTokens,
     SpeedMetrics,
     TokenMetrics,
     TranscriptLine
@@ -42,6 +43,7 @@ export interface TranscriptAnalysisOptions {
     includeCompactionStats?: boolean;
     includeThinkingEffort?: boolean;
     includeSessionName?: boolean;
+    includeLastTurnTokens?: boolean;
 }
 
 export interface TranscriptAnalysis {
@@ -106,6 +108,8 @@ interface TokenMetricState {
     sawCompactBoundary: boolean;
     boundaryAfterLastUsage: boolean;
     lastCompactBoundaryPostTokens: number | null;
+    lastTurnMessageId: string | null;
+    lastTurnTokens: LastTurnTokens | null;
 }
 
 function createEmptyTokenMetrics(): TokenMetrics {
@@ -172,8 +176,40 @@ function createTokenMetricState(): TokenMetricState {
         lastUsageEntry: null,
         sawCompactBoundary: false,
         boundaryAfterLastUsage: false,
-        lastCompactBoundaryPostTokens: null
+        lastCompactBoundaryPostTokens: null,
+        lastTurnMessageId: null,
+        lastTurnTokens: null
     };
+}
+
+function createLastTurnTokens(usage: UsageTokens): LastTurnTokens {
+    const cachedTokens = usage.read + usage.creation;
+    return {
+        inputTokens: usage.input,
+        outputTokens: usage.output,
+        cachedTokens,
+        totalTokens: usage.input + usage.output + cachedTokens
+    };
+}
+
+// Claude Code writes one JSONL entry per content block (thinking / text / each
+// tool_use) of a single API call, all sharing one message.id and repeating
+// identical prompt-side usage; only output_tokens grows entry to entry.
+// Grouping by id keeps one usage per call instead of one per content block
+// (see sirmalloc/ccstatusline#549). Entries without an id each start a new group.
+function trackLastTurnTokens(state: TokenMetricState, entry: TokenMetricEntry, messageId: string | undefined): void {
+    if (state.lastTurnTokens !== null
+        && typeof messageId === 'string'
+        && messageId.length > 0
+        && messageId === state.lastTurnMessageId) {
+        const lastTurn = state.lastTurnTokens;
+        lastTurn.outputTokens = Math.max(lastTurn.outputTokens, entry.usage.output);
+        lastTurn.totalTokens = lastTurn.inputTokens + lastTurn.outputTokens + lastTurn.cachedTokens;
+        return;
+    }
+
+    state.lastTurnMessageId = typeof messageId === 'string' && messageId.length > 0 ? messageId : null;
+    state.lastTurnTokens = createLastTurnTokens(entry.usage);
 }
 
 function collectTokenMetricRecord(state: TokenMetricState, data: TranscriptLine | null, timestampMs: number | null): void {
@@ -203,12 +239,13 @@ function collectTokenMetricRecord(state: TokenMetricState, data: TranscriptLine 
         if (!state.hasStopReasonField || entry.stopReason) {
             accumulateTokenMetricEntry(state.metrics, entry, !compactBoundary);
         }
+        trackLastTurnTokens(state, entry, message.id);
         state.lastUsageEntry = entry;
         state.boundaryAfterLastUsage = compactBoundary;
     }
 }
 
-function finishTokenMetrics(state: TokenMetricState): TokenMetrics {
+function finishTokenMetrics(state: TokenMetricState, includeLastTurnTokens: boolean): TokenMetrics {
     if (state.hasStopReasonField && state.lastUsageEntry?.stopReason === null) {
         accumulateTokenMetricEntry(state.metrics, state.lastUsageEntry, !state.boundaryAfterLastUsage);
     }
@@ -228,7 +265,10 @@ function finishTokenMetrics(state: TokenMetricState): TokenMetrics {
         cacheReadTokens: state.metrics.cacheReadTokens,
         cacheCreationTokens: state.metrics.cacheCreationTokens,
         totalTokens: state.metrics.inputTokens + state.metrics.outputTokens + cachedTokens,
-        contextLength
+        contextLength,
+        lastTurnTokens: includeLastTurnTokens && state.lastTurnTokens
+            ? state.lastTurnTokens
+            : undefined
     };
 }
 
@@ -597,7 +637,7 @@ async function scanTranscript(transcriptPath: string, options: TranscriptScanOpt
         }
 
         return {
-            tokenMetrics: tokenState ? finishTokenMetrics(tokenState) : null,
+            tokenMetrics: tokenState ? finishTokenMetrics(tokenState, options.includeLastTurnTokens === true) : null,
             sessionDuration: options.includeSessionDuration
                 ? formatSessionDuration(firstTimestampMs, lastTimestampMs)
                 : null,
