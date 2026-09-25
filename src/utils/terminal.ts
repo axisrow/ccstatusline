@@ -74,13 +74,6 @@ function probeTerminalWidth(): number | null {
             break;
         }
 
-        if (ancestor.tty !== null) {
-            const width = getWidthForTTY(ancestor.tty);
-            if (width !== null) {
-                return width;
-            }
-        }
-
         pid = ancestor.parentPid;
     }
 
