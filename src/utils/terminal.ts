@@ -62,16 +62,14 @@ function probeTerminalWidth(): number | null {
             break;
         }
 
+        if (ancestor.tty !== null) {
+            const width = getWidthForTTY(ancestor.tty);
+            if (width !== null) {
+                return width;
+            }
+        }
+
         pid = ancestor.parentPid;
-
-        if (ancestor.tty === null) {
-            continue;
-        }
-
-        const width = getWidthForTTY(ancestor.tty);
-        if (width !== null) {
-            return width;
-        }
     }
 
     // Fallback: try tput cols which might work in some environments
