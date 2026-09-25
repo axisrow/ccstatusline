@@ -57,19 +57,18 @@ function probeTerminalWidth(): number | null {
     // find the shell process that owns the real PTY.
     let pid = process.pid;
     for (let depth = 0; depth < 8; depth += 1) {
-        const parentPid = getParentProcessId(pid);
-        if (parentPid === null) {
+        const ancestor = getProcessAncestorInfo(pid);
+        if (ancestor.parentPid === null) {
             break;
         }
 
-        pid = parentPid;
+        pid = ancestor.parentPid;
 
-        const tty = getTTYForProcess(pid);
-        if (tty === null) {
+        if (ancestor.tty === null) {
             continue;
         }
 
-        const width = getWidthForTTY(tty);
+        const width = getWidthForTTY(ancestor.tty);
         if (width !== null) {
             return width;
         }
@@ -100,35 +99,33 @@ function parsePositiveInteger(value: string): number | null {
     return parsed;
 }
 
-function getParentProcessId(pid: number): number | null {
+interface ProcessAncestorInfo {
+    parentPid: number | null;
+    tty: string | null;
+}
+
+function getProcessAncestorInfo(pid: number): ProcessAncestorInfo {
+    // One ps spawn answers both questions of the ancestor walk: the parent pid
+    // and the controlling TTY. The probe re-runs per render on macOS (numeric
+    // widths are deliberately not persisted across processes), and under
+    // several concurrent sessions each saved subprocess is saved per repaint
+    // (see #397).
     try {
-        const parentPidOutput = execFileSync('ps', ['-o', 'ppid=', '-p', String(pid)], {
+        const output = execFileSync('ps', ['-o', 'ppid=,tty=', '-p', String(pid)], {
             encoding: 'utf8',
             stdio: ['pipe', 'pipe', 'ignore'],
             windowsHide: true
         }).trim();
 
-        return parsePositiveInteger(parentPidOutput);
+        const fields = output.split(/\s+/);
+        const tty = fields[1] ?? '';
+
+        return {
+            parentPid: parsePositiveInteger(fields[0] ?? ''),
+            tty: !tty || tty === '?' || tty === '??' ? null : tty
+        };
     } catch {
-        return null;
-    }
-}
-
-function getTTYForProcess(pid: number): string | null {
-    try {
-        const tty = execFileSync('ps', ['-o', 'tty=', '-p', String(pid)], {
-            encoding: 'utf8',
-            stdio: ['pipe', 'pipe', 'ignore'],
-            windowsHide: true
-        }).replace(/\s+/g, '');
-
-        if (!tty || tty === '??' || tty === '?') {
-            return null;
-        }
-
-        return tty;
-    } catch {
-        return null;
+        return { parentPid: null, tty: null };
     }
 }
 
