@@ -211,6 +211,10 @@ function accumulateCumulativeTokenEntry(
     if (state.countedMessageId !== null
         && entry.messageId !== null
         && entry.messageId === state.countedMessageId) {
+        // Duplicates only grow output_tokens, so the recency snapshots taken by
+        // the group's first counted entry stay valid: per-block entries repeat
+        // identical prompt-side usage and contextLength never reads output.
+        // Divergent prompt-side usage within one id would need re-snapshotting.
         const outputDelta = entry.usage.output - state.countedOutputTokens;
         if (outputDelta > 0) {
             state.countedOutputTokens = entry.usage.output;
