@@ -756,6 +756,56 @@ describe('jsonl transcript metrics', () => {
         });
     });
 
+    it('does not report sidechain or API-error usage as the last turn', async () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-jsonl-metrics-'));
+        tempRoots.push(root);
+        const transcriptPath = path.join(root, 'last-turn-main-chain.jsonl');
+
+        // While a Task subagent runs, its entries are the newest usage rows in
+        // the file; the last turn must stay on the user's own API call, and a
+        // synthetic API-error row with usage must not displace it either.
+        fs.writeFileSync(transcriptPath, [
+            makeUsageLine({
+                timestamp: '2026-01-01T10:00:00.000Z',
+                input: 10,
+                output: 50,
+                cacheRead: 20,
+                cacheCreate: 10,
+                stopReason: 'end_turn',
+                messageId: 'msg_main'
+            }),
+            makeUsageLine({
+                timestamp: '2026-01-01T10:01:00.000Z',
+                input: 900,
+                output: 400,
+                cacheRead: 5000,
+                cacheCreate: 100,
+                stopReason: 'tool_use',
+                messageId: 'msg_sub',
+                isSidechain: true
+            }),
+            makeUsageLine({
+                timestamp: '2026-01-01T10:01:01.000Z',
+                input: 999,
+                output: 1,
+                cacheRead: 1,
+                cacheCreate: 1,
+                stopReason: null,
+                messageId: 'msg_err',
+                isApiErrorMessage: true
+            })
+        ].join('\n'));
+
+        const lastTurn = await getLastTurnTokens(transcriptPath);
+
+        expect(lastTurn).toEqual({
+            inputTokens: 10,
+            outputTokens: 50,
+            cachedTokens: 30,
+            totalTokens: 90
+        });
+    });
+
     it('keeps the completed output across streaming partials of the same API call', async () => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-jsonl-metrics-'));
         tempRoots.push(root);

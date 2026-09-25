@@ -239,7 +239,11 @@ function collectTokenMetricRecord(state: TokenMetricState, data: TranscriptLine 
         if (!state.hasStopReasonField || entry.stopReason) {
             accumulateTokenMetricEntry(state.metrics, entry, !compactBoundary);
         }
-        trackLastTurnTokens(state, entry, message.id);
+        // Sidechain (subagent) and API-error rows never form the user's turn,
+        // matching the recency rule used for context length above.
+        if (entry.isMainChain) {
+            trackLastTurnTokens(state, entry, message.id);
+        }
         state.lastUsageEntry = entry;
         state.boundaryAfterLastUsage = compactBoundary;
     }
