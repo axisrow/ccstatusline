@@ -15,6 +15,10 @@ import {
     type WidgetCatalogEntry
 } from '../../../utils/widgets';
 import { EDIT_HIDE_STATES_ACTION } from '../../../widgets/shared/hideable';
+import {
+    TOGGLE_COMPACT_LABEL_ACTION,
+    toggleCompactLabel
+} from '../../../widgets/shared/raw-or-labeled';
 
 export type WidgetPickerAction = 'change' | 'add' | 'insert';
 export type WidgetPickerLevel = 'category' | 'widget';
@@ -500,6 +504,12 @@ export function handleNormalInputMode({
                 if (matchedKeybind.action === CYCLE_NUMBER_STYLE_ACTION) {
                     const newWidgets = [...widgets];
                     newWidgets[selectedIndex] = cycleNumberStyle(currentWidget);
+                    onUpdate(newWidgets);
+                } else if (matchedKeybind.action === TOGGLE_COMPACT_LABEL_ACTION) {
+                    // The compact-label toggle is shared by every labeled
+                    // widget, so like the precision cycle it is applied here.
+                    const newWidgets = [...widgets];
+                    newWidgets[selectedIndex] = toggleCompactLabel(currentWidget);
                     onUpdate(newWidgets);
                 } else if (widgetImpl.handleEditorAction) {
                     const updatedWidget = widgetImpl.handleEditorAction(matchedKeybind.action, currentWidget);

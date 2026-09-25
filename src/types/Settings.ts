@@ -74,6 +74,11 @@ export const SettingsSchema = z.object({
     overrideBackgroundColor: z.string().optional(),
     overrideForegroundColor: z.string().optional(),
     globalBold: z.boolean().default(false),
+    // Compact label presets (Model: -> M:, Context: -> Ctx:, Cost: -> $) for
+    // labeled widgets. Additive v4 key with an off default, so configs written
+    // before it render identically without a version bump; per-widget
+    // metadata.compactLabel overrides the global setting either way.
+    compactLabels: z.boolean().default(false),
     numberFormat: GlobalNumberFormatSchema.optional(),
     gitCacheTtlSeconds: z.number().min(0).max(60).default(5),
     // How long a "no TTY" result is reused for the same session, in seconds.

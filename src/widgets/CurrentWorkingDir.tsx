@@ -13,6 +13,13 @@ import type {
 
 import { lazyEditor } from './shared/lazy-editor';
 import {
+    MAX_WIDTH_ACTION,
+    applyMaxWidth,
+    getMaxWidthKeybind,
+    getMaxWidthModifier,
+    renderMaxWidthEditor
+} from './shared/max-width';
+import {
     SYMBOL_OVERRIDE_ACTION,
     formatSymbolPrefix,
     getSymbolKeybind,
@@ -38,6 +45,11 @@ export class CurrentWorkingDirWidget implements Widget {
             modifiers.push('fish-style');
         } else if (segments && segments > 0) {
             modifiers.push(`segments: ${segments}`);
+        }
+
+        const maxWidthText = getMaxWidthModifier(item);
+        if (maxWidthText) {
+            modifiers.push(maxWidthText);
         }
 
         return {
@@ -167,7 +179,7 @@ export class CurrentWorkingDirWidget implements Widget {
             }
         }
 
-        return item.rawValue ? `${symbolPrefix}${displayPath}` : `${symbolPrefix}cwd: ${displayPath}`;
+        return applyMaxWidth(item.rawValue ? `${symbolPrefix}${displayPath}` : `${symbolPrefix}cwd: ${displayPath}`, item.maxWidth);
     }
 
     getCustomKeybinds(): CustomKeybind[] {
@@ -175,13 +187,17 @@ export class CurrentWorkingDirWidget implements Widget {
             { key: 'h', label: '(h)ome ~', action: 'toggle-abbreviate-home' },
             { key: 's', label: '(s)egments', action: 'edit-segments' },
             { key: 'f', label: '(f)ish style', action: 'toggle-fish-style' },
-            getSymbolKeybind()
+            getSymbolKeybind(),
+            getMaxWidthKeybind()
         ];
     }
 
     renderEditor(props: WidgetEditorProps): React.ReactElement {
         if (props.action === SYMBOL_OVERRIDE_ACTION) {
             return renderSymbolOverrideEditor(props, '');
+        }
+        if (props.action === MAX_WIDTH_ACTION) {
+            return renderMaxWidthEditor(props);
         }
         return <CurrentWorkingDirEditor {...props} />;
     }
