@@ -154,7 +154,7 @@ describe('renderer regular-mode theme', () => {
     // Every shipped theme must behave identically in regular mode: same slot
     // rule, same bg[]-as-foreground palette, at all three color levels.
     describe('uniform cycle across all themes and levels', () => {
-        const themeNames = getPowerlineThemes().filter((name) => name !== 'custom');
+        const themeNames = getPowerlineThemes().filter(name => name !== 'custom');
         const levelName = (colorLevel: 1 | 2 | 3): 'ansi16' | 'ansi256' | 'truecolor' => (colorLevel === 1 ? 'ansi16' : colorLevel === 2 ? 'ansi256' : 'truecolor');
 
         it('has a non-empty bg palette at every level for every theme', () => {
@@ -167,7 +167,7 @@ describe('renderer regular-mode theme', () => {
             }
         });
 
-        it.each(themeNames.flatMap((name) => ([1, 2, 3] as const).map((colorLevel) => ({ name, colorLevel }))))(
+        it.each(themeNames.flatMap(name => ([1, 2, 3] as const).map(colorLevel => ({ name, colorLevel }))))(
             'cycles $name uniformly at colorLevel $colorLevel',
             ({ name, colorLevel }) => {
                 const theme = getPowerlineTheme(name);
@@ -175,16 +175,17 @@ describe('renderer regular-mode theme', () => {
                 const palette = (theme?.[String(colorLevel) as '1' | '2' | '3']?.bg ?? []).map(bgToFg);
                 const first = palette[0];
                 const second = palette[1];
-                expect(first).toBeDefined();
-                expect(second).toBeDefined();
+                if (first === undefined || second === undefined) {
+                    throw new Error(`theme '${name}' has an empty bg palette at ${levelName(colorLevel)}`);
+                }
 
                 const line = renderWidgets(themedSettings(name, colorLevel), [
                     { id: '1', type: 'custom-text', customText: 'A' },
                     { id: '2', type: 'custom-text', customText: 'B' }
                 ]);
 
-                expect(line).toContain(fg(first as string, levelName(colorLevel)));
-                expect(line).toContain(fg(second as string, levelName(colorLevel)));
+                expect(line).toContain(fg(first, levelName(colorLevel)));
+                expect(line).toContain(fg(second, levelName(colorLevel)));
             }
         );
     });
