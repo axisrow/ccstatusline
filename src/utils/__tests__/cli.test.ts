@@ -410,6 +410,7 @@ describe('cli commands', () => {
 
             expect(help.exitCode).toBe(0);
             expect(help.message).toContain('usage: ccstatusline');
+            expect(help.message).toContain('write the default config on first run');
             expect(unknown.exitCode).toBe(1);
             expect(unknown.message).toContain('unknown command \'bogus\'');
             expect(unknownWidget.exitCode).toBe(1);

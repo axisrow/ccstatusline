@@ -39,7 +39,8 @@ const USAGE = [
     '  widget move <line> <index> --to <index>',
     '  set <option-path> <value>                  set a global option (JSON value or plain string)',
     '  validate [--file <path>]                   exit 0/1 with a machine-readable report',
-    '  help                                       show this help'
+    '  help                                       show this help',
+    'note: get and validate write the default config on first run if settings.json is missing'
 ];
 
 function singleLine(text: string): string {
