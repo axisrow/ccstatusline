@@ -1,3 +1,4 @@
+import type { Settings } from '../../../types/Settings';
 import type {
     CustomKeybind,
     Widget,
@@ -358,6 +359,7 @@ export interface HandleNormalInputModeArgs {
     getCustomKeybindsForWidget: (widgetImpl: Widget, widget: WidgetItem) => CustomKeybind[];
     setCustomEditorWidget: (state: CustomEditorWidgetState | null) => void;
     getUniqueBackgroundColor?: (insertIndex: number) => string | undefined;
+    settings?: Settings;
 }
 
 export function handleNormalInputMode({
@@ -375,7 +377,8 @@ export function handleNormalInputMode({
     openWidgetPicker,
     getCustomKeybindsForWidget,
     setCustomEditorWidget,
-    getUniqueBackgroundColor
+    getUniqueBackgroundColor,
+    settings
 }: HandleNormalInputModeArgs): void {
     if (key.upArrow && widgets.length > 0) {
         setSelectedIndex(selectedIndex - 1 < 0 ? widgets.length - 1 : selectedIndex - 1);
@@ -508,8 +511,10 @@ export function handleNormalInputMode({
                 } else if (matchedKeybind.action === TOGGLE_COMPACT_LABEL_ACTION) {
                     // The compact-label toggle is shared by every labeled
                     // widget, so like the precision cycle it is applied here.
+                    // The settings let the cycle start from the effective
+                    // (possibly globally inherited) state.
                     const newWidgets = [...widgets];
-                    newWidgets[selectedIndex] = toggleCompactLabel(currentWidget);
+                    newWidgets[selectedIndex] = toggleCompactLabel(currentWidget, settings);
                     onUpdate(newWidgets);
                 } else if (widgetImpl.handleEditorAction) {
                     const updatedWidget = widgetImpl.handleEditorAction(matchedKeybind.action, currentWidget);

@@ -50,21 +50,33 @@ export function formatRawOrLabeledValue(item: WidgetItem, labelPrefix: string, v
     return `${labelPrefix}${value}`;
 }
 
-// Toggle the per-widget compact-label override. Turning it off removes the
-// metadata key so untouched items keep minimal metadata.
-export function toggleCompactLabel(item: WidgetItem): WidgetItem {
-    const { [COMPACT_LABEL_METADATA_KEY]: removed, ...restMetadata } = item.metadata ?? {};
-    if (isCompactLabelEnabled(item)) {
+// Cycle the per-widget compact-label override over the widget's EFFECTIVE
+// state, so the toggle stays useful while the global setting is on: compact
+// now (saved 'true', or inherited because the global flag is on) -> write an
+// explicit 'false'; forced off -> drop the key and inherit the global setting
+// again; otherwise -> write 'true'. Dropping the key keeps untouched items'
+// metadata minimal.
+export function toggleCompactLabel(item: WidgetItem, settings?: Settings): WidgetItem {
+    const saved = item.metadata?.[COMPACT_LABEL_METADATA_KEY];
+    if (saved === 'true' || (saved === undefined && settings?.compactLabels === true)) {
+        return withCompactLabel(item, 'false');
+    }
+    if (saved === 'false') {
+        const { [COMPACT_LABEL_METADATA_KEY]: removed, ...restMetadata } = item.metadata ?? {};
         return {
             ...item,
             metadata: Object.keys(restMetadata).length > 0 ? restMetadata : undefined
         };
     }
+    return withCompactLabel(item, 'true');
+}
+
+function withCompactLabel(item: WidgetItem, value: string): WidgetItem {
     return {
         ...item,
         metadata: {
-            ...restMetadata,
-            [COMPACT_LABEL_METADATA_KEY]: 'true'
+            ...item.metadata,
+            [COMPACT_LABEL_METADATA_KEY]: value
         }
     };
 }
@@ -73,8 +85,20 @@ export function getCompactLabelKeybind(): CustomKeybind {
     return COMPACT_LABEL_KEYBIND;
 }
 
-export function getCompactLabelModifierText(item: WidgetItem): string | undefined {
-    return isCompactLabelEnabled(item) ? '(compact label)' : undefined;
+// Modifier text reflects the effective state, not just saved metadata, so a
+// widget that renders compact via the global setting is still marked.
+export function getCompactLabelModifierText(item: WidgetItem, settings?: Settings): string | undefined {
+    const saved = item.metadata?.[COMPACT_LABEL_METADATA_KEY];
+    if (saved === 'true') {
+        return '(compact label)';
+    }
+    if (saved === 'false') {
+        return '(compact label: off)';
+    }
+    if (saved === undefined && settings?.compactLabels === true) {
+        return '(compact label: on)';
+    }
+    return undefined;
 }
 
 // Fold the global Compact Labels setting into the item's metadata right before

@@ -119,7 +119,7 @@ Configure global formatting preferences that apply to all widgets:
 - **Default padding is empty** (`defaultPadding` unset), so widgets add no padding unless you configure it. A non-empty padding of N characters adds up to 2N columns per widget (one per enabled side).
 - **Manual `|` separators render as ` | `** (3 columns); in Powerline mode separator widgets are ignored and replaced by the powerline separators.
 - **Labels are the dominant fixed cost** of labeled widgets. Defaults: `Model: ` (7), `Ctx: ` (5), `Cost: ` (6), token widgets `In: `/`Out: `/`Total: `/`Cached: ` (4–8), cache widgets `Cache Read: `/`Cache Write: `/`Cache Hit: ` (10–12), timers `Block: `/`Reset: `/`Cache: ` (7) and `Weekly Reset: ` (13), usage widgets `Session: `/`Weekly: `/`Weekly Sonnet: `/`Weekly Opus: `/`Weekly Fable: ` (8–15).
-- **Compact Labels** (above) trims the presets it covers (`Model:` −5, `Context:` −3, `Cost:` −6, label gone — the value's own `$` remains); Minimalist Mode strips labels entirely.
+- **Compact Labels** (above) trims the presets it covers (`Model:` −4, `Context:` −4, `Cost:` −6, label gone — the value's own `$` remains); Minimalist Mode strips labels entirely.
 - **Unbounded-content widgets** (paths, names, URLs) can overflow a narrow terminal: Git Branch, Git Root Dir, Current Working Dir, and Session Name support a per-widget max-width cap — select the widget in the line editor and press **(w)idth**. The line renderer truncates the whole line with an ellipsis regardless.
 
 </details>

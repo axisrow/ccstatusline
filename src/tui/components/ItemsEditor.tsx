@@ -270,7 +270,8 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
             openWidgetPicker,
             getCustomKeybindsForWidget,
             setCustomEditorWidget,
-            getUniqueBackgroundColor
+            getUniqueBackgroundColor,
+            settings
         });
     });
 
@@ -594,7 +595,7 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
                                     : undefined;
                                 const hideModifierText = widgetImpl ? getHideModifierText(widget, widgetImpl.getHideableStates?.() ?? []) : undefined;
                                 const compactModifierText = widgetImpl && getCompactLabelCapableTypes().has(widget.type)
-                                    ? getCompactLabelModifierText(widget)
+                                    ? getCompactLabelModifierText(widget, settings)
                                     : undefined;
 
                                 return (

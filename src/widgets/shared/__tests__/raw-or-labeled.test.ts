@@ -42,19 +42,32 @@ describe('formatRawOrLabeledValue', () => {
 });
 
 describe('toggleCompactLabel', () => {
-    it('adds and removes only the compactLabel metadata key', () => {
-        const enabled = toggleCompactLabel(ITEM);
-        expect(enabled.metadata).toEqual({ compactLabel: 'true' });
+    it('cycles inherit -> on -> forced off -> inherit without the global setting', () => {
+        const on = toggleCompactLabel(ITEM);
+        expect(on.metadata).toEqual({ compactLabel: 'true' });
 
-        const disabled = toggleCompactLabel(enabled);
-        expect(disabled.metadata).toBeUndefined();
-        expect(disabled).toEqual(ITEM);
+        const forcedOff = toggleCompactLabel(on);
+        expect(forcedOff.metadata).toEqual({ compactLabel: 'false' });
+
+        const inherit = toggleCompactLabel(forcedOff);
+        expect(inherit.metadata).toBeUndefined();
+        expect(inherit).toEqual(ITEM);
+    });
+
+    it('starts from the effective state while the global setting is on', () => {
+        const settings = { ...DEFAULT_SETTINGS, compactLabels: true };
+        // Inherited compact -> first press forces off instead of a no-op.
+        const forcedOff = toggleCompactLabel(ITEM, settings);
+        expect(forcedOff.metadata).toEqual({ compactLabel: 'false' });
+
+        // Second press drops the key and inherits the global setting again.
+        expect(toggleCompactLabel(forcedOff, settings).metadata).toBeUndefined();
     });
 
     it('preserves sibling metadata', () => {
         const item: WidgetItem = { id: '1', type: 'model', metadata: { hide: 'no-git' } };
         expect(toggleCompactLabel(item).metadata).toEqual({ hide: 'no-git', compactLabel: 'true' });
-        expect(toggleCompactLabel(toggleCompactLabel(item)).metadata).toEqual({ hide: 'no-git' });
+        expect(toggleCompactLabel(toggleCompactLabel(toggleCompactLabel(item))).metadata).toEqual({ hide: 'no-git' });
     });
 });
 
@@ -92,9 +105,13 @@ describe('startsWithCompactLabel', () => {
 });
 
 describe('compact label keybind', () => {
-    it('uses a key no widget binds and advertises the enabled state', () => {
+    it('uses a key no widget binds and reports the effective state', () => {
         expect(getCompactLabelKeybind().key).toBe('j');
-        expect(getCompactLabelModifierText(toggleCompactLabel(ITEM))).toBe('(compact label)');
+        const settings = { ...DEFAULT_SETTINGS, compactLabels: true };
+
         expect(getCompactLabelModifierText(ITEM)).toBeUndefined();
+        expect(getCompactLabelModifierText(ITEM, settings)).toBe('(compact label: on)');
+        expect(getCompactLabelModifierText(toggleCompactLabel(ITEM))).toBe('(compact label)');
+        expect(getCompactLabelModifierText(toggleCompactLabel(toggleCompactLabel(ITEM)), settings)).toBe('(compact label: off)');
     });
 });
