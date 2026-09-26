@@ -35,6 +35,8 @@ const DEFAULT_RATE_LIMIT_BACKOFF = 300; // seconds
 const MAX_LOCK_HORIZON = 24 * 60 * 60; // seconds
 const MACOS_USAGE_CREDENTIALS_SERVICE = 'Claude Code-credentials';
 const MACOS_SECURITY_DUMP_MAX_BUFFER = 8 * 1024 * 1024;
+const MACOS_KEYCHAIN_MISS_FILE = path.join(CACHE_DIR, 'keychain-fallback-empty');
+const MACOS_KEYCHAIN_MISS_TTL_MS = 30_000;
 
 export interface FetchUsageDataOptions { requiredFields?: readonly UsageDataField[] }
 
@@ -548,6 +550,18 @@ function listMacKeychainCredentialCandidates(): string[] {
 }
 
 function readUsageCredentialsFromMacKeychainCandidates(): UsageCredentials | null {
+    // Each repaint is a new process. Remember empty scans across processes,
+    // while the exact service and credentials file still get checked every time.
+    // ponytail: new hashed logins may wait 30s; invalidate on keychain changes if instant detection is needed.
+    try {
+        const age = Date.now() - fs.statSync(MACOS_KEYCHAIN_MISS_FILE).mtimeMs;
+        if (age >= 0 && age < MACOS_KEYCHAIN_MISS_TTL_MS) {
+            return null;
+        }
+    } catch {
+        // No previous miss, or the cache is unavailable: scan normally.
+    }
+
     const candidates = listMacKeychainCredentialCandidates();
 
     for (const service of candidates) {
@@ -555,6 +569,13 @@ function readUsageCredentialsFromMacKeychainCandidates(): UsageCredentials | nul
         if (credentials) {
             return credentials;
         }
+    }
+
+    try {
+        ensureCacheDirExists();
+        fs.writeFileSync(MACOS_KEYCHAIN_MISS_FILE, '');
+    } catch {
+        // A read-only cache must not prevent credentials-file fallback.
     }
 
     return null;
