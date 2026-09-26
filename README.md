@@ -422,6 +422,12 @@ ccstatusline help
 Indices are 0-based. `widget add` accepts the widget options the TUI exposes
 (`--color`, `--customText`, `--bold`, `--maxWidth`, `--metadata key=value`, …).
 
+`set theme <name>` applies one of the built-in powerline themes (`nord`,
+`dracula`, `tokyonight`, …) to regular (non-powerline) mode as foreground
+colors only, cycling the theme's segment palette across widgets. Explicit
+per-widget colors win; separators are left untouched; `custom` or an unknown
+name disables theming.
+
 > **Note:** `get` and `validate` read through the same loader the TUI uses, so
 > on a missing `settings.json` they write the default config on that first run
 > (the file is never overwritten when it exists but is unreadable or invalid).
