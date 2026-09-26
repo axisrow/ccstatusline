@@ -32,8 +32,8 @@ describe('formatRawOrLabeledValue', () => {
         expect(formatRawOrLabeledValue(compact, 'Cost: ', '$2.45')).toBe('$2.45');
     });
 
-    it('keeps labels without a preset unchanged in compact mode', () => {
-        expect(formatRawOrLabeledValue(toggleCompactLabel(ITEM), 'In: ', '15.2k')).toBe('In: 15.2k');
+    it('keeps unmapped labels unchanged in compact mode', () => {
+        expect(formatRawOrLabeledValue(toggleCompactLabel(ITEM), 'Branch: ', 'main')).toBe('Branch: main');
     });
 
     it('rawValue wins over compact labels', () => {
@@ -99,7 +99,8 @@ describe('startsWithCompactLabel', () => {
         expect(startsWithCompactLabel('Model: Opus')).toBe(true);
         expect(startsWithCompactLabel('Context: [bar]')).toBe(true);
         expect(startsWithCompactLabel('Cost: $1')).toBe(true);
-        expect(startsWithCompactLabel('In: 15k')).toBe(false);
+        expect(startsWithCompactLabel('In: 15k')).toBe(true);
+        expect(startsWithCompactLabel('Branch: main')).toBe(false);
         expect(startsWithCompactLabel('')).toBe(false);
     });
 });

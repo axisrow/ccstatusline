@@ -12,7 +12,11 @@ import {
     type Settings
 } from '../../types/Settings';
 import type { WidgetItem } from '../../types/Widget';
-import { toggleCompactLabel } from '../../widgets/shared/raw-or-labeled';
+import {
+    COMPACT_LABELS,
+    formatRawOrLabeledValue,
+    toggleCompactLabel
+} from '../../widgets/shared/raw-or-labeled';
 import { stripSgrCodes } from '../ansi';
 import { migrateConfig } from '../migrations';
 import {
@@ -103,5 +107,15 @@ describe('compact labels rendering', () => {
 
     it('keeps legacy v1 schema unaware of the new key', () => {
         expect('compactLabels' in SettingsSchema_v1.shape).toBe(false);
+    });
+});
+
+describe('compact label presets', () => {
+    const compactItem: WidgetItem = { id: 'x', type: 'model', metadata: { compactLabel: 'true' } };
+    const plainItem: WidgetItem = { id: 'x', type: 'model' };
+
+    it.each(Object.entries(COMPACT_LABELS))('maps %j to %j', (full, compact) => {
+        expect(formatRawOrLabeledValue(compactItem, full, 'V')).toBe(`${compact}V`);
+        expect(formatRawOrLabeledValue(plainItem, full, 'V')).toBe(`${full}V`);
     });
 });
