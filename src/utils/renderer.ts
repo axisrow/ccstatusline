@@ -38,8 +38,8 @@ import {
     isGradientSpec,
     parseGradientSpec
 } from './gradient';
-import { getTerminalWidth } from './terminal';
 import { fontSafeSeparator } from './powerline';
+import { getTerminalWidth } from './terminal';
 import {
     getWidget,
     widgetPreservesColors
@@ -163,12 +163,12 @@ function renderPowerlineStatusLine(
 
     // Get separator configuration; PUA glyphs degrade to '|' without a
     // Powerline/Nerd Font instead of rendering as mojibake
-    const separators = ((config.separators as string[] | undefined) ?? ['\uE0B0']).map((separator) => fontSafeSeparator(separator));
+    const separators = ((config.separators as string[] | undefined) ?? ['\uE0B0']).map(separator => fontSafeSeparator(separator));
     const invertBgs = (config.separatorInvertBackground as boolean[] | undefined) ?? separators.map(() => false);
 
     // Get caps arrays or fallback to empty arrays
-    const startCaps = ((config.startCaps as string[] | undefined) ?? []).map((cap) => fontSafeSeparator(cap));
-    const endCaps = ((config.endCaps as string[] | undefined) ?? []).map((cap) => fontSafeSeparator(cap));
+    const startCaps = ((config.startCaps as string[] | undefined) ?? []).map(cap => fontSafeSeparator(cap));
+    const endCaps = ((config.endCaps as string[] | undefined) ?? []).map(cap => fontSafeSeparator(cap));
 
     // Get the cap for this line (cycle through if more lines than caps)
     const capLineIndex = context.lineIndex ?? lineIndex;

@@ -169,9 +169,7 @@ export function setCachedPowerlineFontStatus(status: PowerlineFontStatus): void 
 }
 
 export function getCachedPowerlineFontStatus(): PowerlineFontStatus {
-    if (cachedFontStatus === null) {
-        cachedFontStatus = checkPowerlineFonts();
-    }
+    cachedFontStatus ??= checkPowerlineFonts();
     return cachedFontStatus;
 }
 

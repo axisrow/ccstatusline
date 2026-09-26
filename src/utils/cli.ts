@@ -4,7 +4,6 @@ import type { WidgetItem } from '../types/Widget';
 import { WidgetItemSchema } from '../types/Widget';
 
 import { getPowerlineThemes } from './colors';
-
 import {
     getConfigLoadError,
     getConfigPath,
@@ -203,7 +202,7 @@ function getThemeWarnings(settings: Settings): string[] {
     if (!settings.theme || settings.theme === 'custom' || getPowerlineThemes().includes(settings.theme)) {
         return [];
     }
-    return [`unknown theme '${settings.theme}' (known: ${getPowerlineThemes().filter((name) => name !== 'custom').join(', ')})`];
+    return [`unknown theme '${settings.theme}' (known: ${getPowerlineThemes().filter(name => name !== 'custom').join(', ')})`];
 }
 
 interface SettingsLoad { settings: Settings }

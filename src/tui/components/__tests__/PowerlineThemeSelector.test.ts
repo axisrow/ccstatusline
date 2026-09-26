@@ -180,7 +180,7 @@ describe('PowerlineThemeSelector helpers', () => {
     });
 
     it('writes settings.theme when navigating in regular mode', async () => {
-        const firstTheme = getPowerlineThemes().filter((name) => name !== 'custom')[0];
+        const firstTheme = getPowerlineThemes().find(name => name !== 'custom');
         expect(firstTheme).toBeDefined();
 
         const stdin = createMockStdin();
