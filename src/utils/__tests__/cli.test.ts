@@ -328,6 +328,24 @@ describe('cli commands', () => {
             expect(ctorResult.message).toContain('unknown option \'powerline.constructor\'');
             expect(readDiskRaw()).toBe(before);
         });
+
+        it('warns on an unknown theme but still writes it', async () => {
+            const result = await executeCli(['set', 'theme', 'not-a-theme']);
+
+            expect(result.exitCode).toBe(0);
+            expect(result.message).toContain('warning');
+            expect((result.data as { warnings: string[] }).warnings[0]).toContain('unknown theme');
+            expect((readDisk() as { theme?: string }).theme).toBe('not-a-theme');
+        });
+
+        it('does not warn for a known theme', async () => {
+            const result = await executeCli(['set', 'theme', 'dracula']);
+
+            expect(result.exitCode).toBe(0);
+            expect(result.message).not.toContain('warning');
+            expect((result.data as { warnings: string[] }).warnings).toHaveLength(0);
+            expect((readDisk() as { theme?: string }).theme).toBe('dracula');
+        });
     });
 
     describe('validate', () => {
@@ -370,6 +388,25 @@ describe('cli commands', () => {
             expect((bad.data as { errors: string[] }).errors[0]).toContain('newer than supported');
             expect(missing.exitCode).toBe(1);
             expect(missing.message).toContain('Cannot read file');
+        });
+
+        it('warns on an unknown theme name while staying valid', async () => {
+            writeDisk(JSON.stringify({ version: CURRENT_VERSION, theme: 'not-a-theme' }));
+
+            const result = await executeCli(['validate']);
+
+            expect(result.exitCode).toBe(0);
+            expect(result.message).toContain('with warnings');
+            expect((result.data as { warnings: string[] }).warnings[0]).toContain('unknown theme');
+        });
+
+        it('reports no theme warnings when the theme is known', async () => {
+            writeDisk(JSON.stringify({ version: CURRENT_VERSION, theme: 'nord' }));
+
+            const result = await executeCli(['validate']);
+
+            expect(result.exitCode).toBe(0);
+            expect((result.data as { warnings: string[] }).warnings).toHaveLength(0);
         });
     });
 
