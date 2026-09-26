@@ -3,6 +3,8 @@ import { SettingsSchema } from '../types/Settings';
 import type { WidgetItem } from '../types/Widget';
 import { WidgetItemSchema } from '../types/Widget';
 
+import { getPowerlineThemes } from './colors';
+
 import {
     getConfigLoadError,
     getConfigPath,
@@ -194,6 +196,16 @@ async function persistSettings(next: Settings, success: { message: string; data:
     return ok(success.message, success.data);
 }
 
+// Theme names outside POWERLINE_THEMES silently no-op in the regular renderer;
+// surface a warning instead of failing so a typo never invalidates a config.
+// 'custom' is the powerline off state and always allowed.
+function getThemeWarnings(settings: Settings): string[] {
+    if (!settings.theme || settings.theme === 'custom' || getPowerlineThemes().includes(settings.theme)) {
+        return [];
+    }
+    return [`unknown theme '${settings.theme}' (known: ${getPowerlineThemes().filter((name) => name !== 'custom').join(', ')})`];
+}
+
 interface SettingsLoad { settings: Settings }
 
 // Mutating commands must never overwrite an unreadable/invalid settings file
@@ -239,11 +251,15 @@ async function cmdValidate(args: string[]): Promise<CliResult> {
         return { exitCode: 1, message: reason, data: { valid: false, path: filePath, errors: [reason] } };
     }
 
-    await loadSettings();
+    const settings = await loadSettings();
     const loadError = getConfigLoadError();
     const configPath = getConfigPath();
     if (loadError === null) {
-        return ok(`OK ${configPath}`, { valid: true, path: configPath });
+        const warnings = getThemeWarnings(settings);
+        return ok(
+            warnings.length > 0 ? `OK ${configPath} (with warnings)` : `OK ${configPath}`,
+            { valid: true, path: configPath, warnings }
+        );
     }
     return { exitCode: 1, message: loadError, data: { valid: false, path: configPath, errors: [singleLine(loadError)] } };
 }
@@ -553,9 +569,10 @@ async function cmdSet(args: string[]): Promise<CliResult> {
     }
     node[last] = value;
 
+    const warnings = parts.length === 1 && last === 'theme' ? getThemeWarnings(next) : [];
     return persistSettings(next, {
-        message: `set ${optionPath} = ${JSON.stringify(value)}`,
-        data: { set: optionPath, value }
+        message: `set ${optionPath} = ${JSON.stringify(value)}${warnings.length > 0 ? ` (warning: ${warnings[0]})` : ''}`,
+        data: { set: optionPath, value, warnings }
     });
 }
 
