@@ -58,6 +58,33 @@ that runtime was the official Darwin x64 binary running under Rosetta.
 Per orchestrator decision, no build/dependency repair was attempted. This
 follow-up adds no newer JS syntax or Node APIs; the distribution blocker remains.
 
+### Resolution (fork issue axisrow/ccstatusline#4, 2026-09-27) — honest re-declaration
+
+Instead of repairing the build, the floor was re-declared to the oldest Node
+version that actually runs the dist: `engines` is now **Node >=18** and the
+build passes `--target-version=18`. Node 14 is not supported and will not be:
+Bun's bundler does not lower syntax (re-verified on Bun 1.3.13 — the emitted
+`__toESMCache_node ??=` helper survives even `--target-version=14`), so a true
+Node 14 dist requires a transpile pass (esbuild/swc/babel — a new build
+dependency) plus pinning bundled dependencies to old versions (chalk 6
+declares >=22, ink 6.2.0 >=20). Node 14 has been EOL since April 2023.
+
+Measured floor, real nodejs.org binaries piping `scripts/payload.example.json`
+into the built `dist/ccstatusline.js` (14.21.3 = Darwin x64 under Rosetta,
+the rest Darwin arm64):
+
+| Node binary | Result |
+|---|---|
+| 14.21.3 | `SyntaxError: Unexpected token '??='`, exit 1 |
+| 16.0.0 | `TypeError: ambiguousRanges.at is not a function`, exit 1 (`Array.prototype.at` is Node 16.6+) |
+| 16.20.2 | renders, exit 0 (tail of an EOL line; not claimed) |
+| 18.0.0 | renders, exit 0 |
+| 20.0.0 | renders, exit 0 |
+
+Node 18 is the oldest version line verified end-to-end. The 16.x tail also
+runs but sits on a partially broken line (16.0–16.5 fail), so it is not
+declared.
+
 ## Phase 2: implemented win
 
 `164007b` extends, rather than replaces, `35440e4`: keep its dynamic TUI entry

@@ -561,8 +561,8 @@ async function cmdSet(args: string[]): Promise<CliResult> {
     }
     // hasOwn-style checks: `in` also matches inherited properties, so
     // `set toString x` would pass the guard, get stripped by the schema, and
-    // report success while writing nothing. Object.hasOwn is Node 16.9+ and
-    // the build targets Node 14+, hence the prototype call.
+    // report success while writing nothing. The prototype call is equivalent
+    // to Object.hasOwn (Node 16.9+) on the Node 18+ dist target.
     if (!hasOwn(node, last) && !(parts.length === 1 && hasOwn(SettingsSchema.shape, last))) {
         return fail(`unknown option '${optionPath}'`);
     }
