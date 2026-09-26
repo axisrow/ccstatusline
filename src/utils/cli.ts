@@ -70,6 +70,10 @@ function coerceValue(text: string): unknown {
     }
 }
 
+function hasOwn(object: object, key: string): boolean {
+    return Object.prototype.hasOwnProperty.call(object, key);
+}
+
 type WidgetOptionKind = 'string' | 'boolean' | 'number' | 'dim' | 'merge' | 'json';
 
 // Option names mirror the WidgetItem fields the TUI's items editor exposes.
@@ -90,6 +94,54 @@ const WIDGET_OPTION_KINDS: Record<string, WidgetOptionKind> = {
     dim: 'dim',
     merge: 'merge'
 };
+
+// Options whose next argv token is their value (widget add also accepts
+// value-less boolean flags, hence the separate boolean set).
+const WIDGET_BOOLEAN_FLAGS = new Set(
+    Object.entries(WIDGET_OPTION_KINDS)
+        .filter(([, kind]) => kind === 'boolean')
+        .map(([key]) => `--${key}`)
+);
+const VALUE_OPTION_FLAGS = new Set([
+    ...Object.entries(WIDGET_OPTION_KINDS)
+        .filter(([, kind]) => kind !== 'boolean')
+        .map(([key]) => `--${key}`),
+    '--index',
+    '--metadata',
+    '--file',
+    '--to'
+]);
+
+/**
+ * Pull the --json output flag out of argv without eating option values: a
+ * --json token that follows a value-taking option (or fills a boolean option
+ * before a non-`--` token) belongs to that option, not to the output flag.
+ */
+export function extractJsonFlag(argv: string[]): { args: string[]; json: boolean } {
+    const valuePositions = new Set<number>();
+    for (let i = 0; i < argv.length; i++) {
+        const token = argv[i];
+        if (token === undefined) {
+            break;
+        }
+        const next = argv[i + 1];
+        if (VALUE_OPTION_FLAGS.has(token) && next !== undefined) {
+            valuePositions.add(i + 1);
+        } else if (WIDGET_BOOLEAN_FLAGS.has(token) && next !== undefined && !next.startsWith('--')) {
+            valuePositions.add(i + 1);
+        }
+    }
+    const args: string[] = [];
+    let json = false;
+    argv.forEach((token, i) => {
+        if (token === '--json' && !valuePositions.has(i)) {
+            json = true;
+        } else {
+            args.push(token);
+        }
+    });
+    return { args, json };
+}
 
 function coerceBooleanOption(name: string, text: string): { value: boolean } | string {
     if (text === 'true')
@@ -491,11 +543,11 @@ async function cmdSet(args: string[]): Promise<CliResult> {
     if (last === undefined) {
         return fail(`unknown option '${optionPath}'`);
     }
-    // Absent optional top-level keys (e.g. numberFormat — zomitted from parsed
-    // defaults) may be created; the option path must already exist everywhere
-    // else, so typos cannot pollute the file with unknown keys. Zod keeps every
-    // declared key in .shape regardless of optionality.
-    if (!(last in node) && !(parts.length === 1 && last in SettingsSchema.shape)) {
+    // hasOwn-style checks: `in` also matches inherited properties, so
+    // `set toString x` would pass the guard, get stripped by the schema, and
+    // report success while writing nothing. Object.hasOwn is Node 16.9+ and
+    // the build targets Node 14+, hence the prototype call.
+    if (!hasOwn(node, last) && !(parts.length === 1 && hasOwn(SettingsSchema.shape, last))) {
         return fail(`unknown option '${optionPath}'`);
     }
     node[last] = value;
@@ -511,7 +563,7 @@ function cmdHelp(): CliResult {
 }
 
 export async function executeCli(argv: string[]): Promise<CliResult> {
-    const args = argv.filter(arg => arg !== '--json');
+    const { args } = extractJsonFlag(argv);
     const command = args[0];
 
     if (command === 'help' || command === '--help' || command === '-h') {
@@ -551,8 +603,9 @@ export function formatCliResult(result: CliResult, json: boolean): { stream: 'st
 }
 
 export async function runCli(argv: string[]): Promise<never> {
-    const result = await executeCli(argv);
-    const output = formatCliResult(result, argv.includes('--json'));
+    const { args, json } = extractJsonFlag(argv);
+    const result = await executeCli(args);
+    const output = formatCliResult(result, json);
     if (output.stream === 'stdout') {
         console.log(output.text);
     } else {

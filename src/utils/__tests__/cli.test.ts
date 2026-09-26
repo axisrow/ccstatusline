@@ -14,6 +14,7 @@ import { CURRENT_VERSION } from '../../types/Settings';
 import type { WidgetItem } from '../../types/Widget';
 import {
     executeCli,
+    extractJsonFlag,
     formatCliResult,
     isCliMode
 } from '../cli';
@@ -313,6 +314,20 @@ describe('cli commands', () => {
             expect(nestedResult.exitCode).toBe(1);
             expect(nestedResult.message).toContain('unknown option \'powerline.bogus\'');
         });
+
+        it('rejects inherited Object.prototype keys instead of stripping them silently', async () => {
+            writeDisk(JSON.stringify({ version: CURRENT_VERSION }));
+            const before = readDiskRaw();
+
+            const toStringResult = await executeCli(['set', 'toString', 'x']);
+            const ctorResult = await executeCli(['set', 'powerline.constructor', 'x']);
+
+            expect(toStringResult.exitCode).toBe(1);
+            expect(toStringResult.message).toContain('unknown option \'toString\'');
+            expect(ctorResult.exitCode).toBe(1);
+            expect(ctorResult.message).toContain('unknown option \'powerline.constructor\'');
+            expect(readDiskRaw()).toBe(before);
+        });
     });
 
     describe('validate', () => {
@@ -417,6 +432,32 @@ describe('cli commands', () => {
             const json = formatCliResult({ exitCode: 0, message: 'added x', data: { added: true, type: 'x' } }, true);
 
             expect(json.text).toBe('{"added":true,"type":"x"}');
+        });
+
+        it('treats --json as the output flag only when it does not fill an option value', () => {
+            expect(extractJsonFlag(['get', '--json'])).toEqual({ args: ['get'], json: true });
+            expect(extractJsonFlag(['--json', 'get'])).toEqual({ args: ['get'], json: true });
+            expect(extractJsonFlag(['get'])).toEqual({ args: ['get'], json: false });
+
+            // A --json token after a value-taking option is that option's value.
+            expect(extractJsonFlag(['widget', 'add', '0', 'custom-text', '--customText', '--json'])).toEqual({
+                args: ['widget', 'add', '0', 'custom-text', '--customText', '--json'],
+                json: false
+            });
+
+            // A boolean flag followed by a non-`--` token consumes it as the value.
+            expect(extractJsonFlag(['widget', 'add', '0', 'model', '--bold', 'false', '--json'])).toEqual({
+                args: ['widget', 'add', '0', 'model', '--bold', 'false'],
+                json: true
+            });
+        });
+
+        it('keeps a --json-looking option value intact for widget add', async () => {
+            const result = await executeCli(['widget', 'add', '1', 'custom-text', '--customText', '--json']);
+
+            expect(result.exitCode).toBe(0);
+            const added = (readDisk().lines ?? [])[1]?.[0];
+            expect(added?.customText).toBe('--json');
         });
     });
 
