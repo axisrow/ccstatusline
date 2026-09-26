@@ -12,6 +12,7 @@ import {
     type Settings
 } from '../../types/Settings';
 import type { WidgetItem } from '../../types/Widget';
+import { toggleCompactLabel } from '../../widgets/shared/raw-or-labeled';
 import { stripSgrCodes } from '../ansi';
 import { migrateConfig } from '../migrations';
 import {
@@ -19,7 +20,6 @@ import {
     preRenderAllWidgets,
     renderStatusLine
 } from '../renderer';
-import { toggleCompactLabel } from '../../widgets/shared/raw-or-labeled';
 
 function createSettings(overrides: Partial<Settings> = {}): Settings {
     return {
