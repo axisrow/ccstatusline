@@ -19,6 +19,7 @@ import {
     preRenderAllWidgets,
     renderStatusLine
 } from '../renderer';
+import { toggleCompactLabel } from '../../widgets/shared/raw-or-labeled';
 
 function createSettings(overrides: Partial<Settings> = {}): Settings {
     return {
@@ -72,6 +73,19 @@ describe('compact labels rendering', () => {
             { id: '3', type: 'session-cost' }
         ];
         expect(renderLine(widgets, createSettings())).toBe('M: Opus 4.6 | Cost: $2.46');
+    });
+
+    it('the per-widget (j) toggle beats the global setting at render time', () => {
+        const settings = createSettings({ compactLabels: true });
+        // Simulate pressing (j) once on the model widget while the global
+        // flag is on: the cycle writes an explicit 'false' and the label
+        // renders in its default form.
+        const toggled = toggleCompactLabel({ id: '1', type: 'model' }, settings);
+        expect(toggled.metadata).toEqual({ compactLabel: 'false' });
+        // Model is forced back to its default label while session-cost stays
+        // compact through the global flag.
+        expect(renderLine([toggled, { id: '2', type: 'separator', character: '|' }, { id: '3', type: 'session-cost' }], settings))
+            .toBe('Model: Opus 4.6 | $2.46');
     });
 
     it('parses legacy settings without the new key to the off default', () => {
