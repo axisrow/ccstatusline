@@ -113,6 +113,7 @@ interface TokenMetricState {
     lastCompactBoundaryPostTokens: number | null;
     lastTurnMessageId: string | null;
     lastTurnTokens: LastTurnTokens | null;
+    turnCount: number;
 }
 
 function createEmptyTokenMetrics(): TokenMetrics {
@@ -183,7 +184,8 @@ function createTokenMetricState(): TokenMetricState {
         boundaryAfterLastUsage: false,
         lastCompactBoundaryPostTokens: null,
         lastTurnMessageId: null,
-        lastTurnTokens: null
+        lastTurnTokens: null,
+        turnCount: 0
     };
 }
 
@@ -244,6 +246,14 @@ function trackLastTurnTokens(state: TokenMetricState, entry: TokenMetricEntry): 
 }
 
 function collectTokenMetricRecord(state: TokenMetricState, data: TranscriptLine | null, timestampMs: number | null): void {
+    // A user turn is a real prompt: tool results carry toolUseResult, and
+    // meta rows / subagent sidechains / API errors are not the user's turns.
+    if (data?.type === 'user' && data.isMeta !== true
+        && data.toolUseResult === undefined
+        && data.isSidechain !== true && data.isApiErrorMessage !== true) {
+        state.turnCount++;
+    }
+
     const compactBoundary = isCompactBoundary(data);
     if (compactBoundary) {
         state.sawCompactBoundary = true;
@@ -307,7 +317,8 @@ function finishTokenMetrics(state: TokenMetricState, includeLastTurnTokens: bool
         contextLength,
         lastTurnTokens: includeLastTurnTokens && state.lastTurnTokens
             ? state.lastTurnTokens
-            : undefined
+            : undefined,
+        turnCount: includeLastTurnTokens ? state.turnCount : undefined
     };
 }
 
