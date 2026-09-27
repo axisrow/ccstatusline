@@ -10,6 +10,8 @@ export interface TranscriptLine {
     isSidechain?: boolean;
     timestamp?: string;
     isApiErrorMessage?: boolean;
+    isMeta?: boolean;
+    toolUseResult?: unknown;
     type?: 'user' | 'assistant' | 'system' | 'progress' | 'file-history-snapshot';
 }
 
@@ -35,4 +37,8 @@ export interface TokenMetrics {
     contextLength: number;
     // Only populated when the scan option includeLastTurnTokens is set.
     lastTurnTokens?: LastTurnTokens;
+    // Real user prompts so far (tool results, meta rows and subagent
+    // sidechains excluded). Only populated when the scan option
+    // includeLastTurnTokens is set, alongside lastTurnTokens.
+    turnCount?: number;
 }

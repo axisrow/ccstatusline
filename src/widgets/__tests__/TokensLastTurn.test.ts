@@ -139,4 +139,44 @@ describe('TokensLastTurn widget', () => {
 
         expect(new TokensLastTurnWidget().getHideableStates().map(state => state.key)).toEqual(['zero']);
     });
+
+    it('renders the user turn number when metadata display=turn is set', async () => {
+        const { TokensLastTurnWidget } = await import('../TokensLastTurn');
+        const context: RenderContext = {
+            tokenMetrics: {
+                inputTokens: 99999,
+                outputTokens: 99999,
+                cachedTokens: 99999,
+                totalTokens: 99999,
+                contextLength: 99999,
+                lastTurnTokens: {
+                    inputTokens: 100,
+                    outputTokens: 250,
+                    cachedTokens: 4000,
+                    totalTokens: 4350
+                },
+                turnCount: 57
+            }
+        };
+        const item = { id: 'last', type: 'tokens-last-turn', metadata: { display: 'turn' } };
+
+        expect(new TokensLastTurnWidget().render(item, context, DEFAULT_SETTINGS)).toBe('Turn: 57');
+        expect(new TokensLastTurnWidget().render(item, { isPreview: true }, DEFAULT_SETTINGS)).toBe('Turn: 12');
+    });
+
+    it('hides the turn-number mode when no turn count was collected', async () => {
+        const { TokensLastTurnWidget } = await import('../TokensLastTurn');
+        const context: RenderContext = {
+            tokenMetrics: {
+                inputTokens: 999,
+                outputTokens: 999,
+                cachedTokens: 999,
+                totalTokens: 999,
+                contextLength: 999
+            }
+        };
+
+        expect(new TokensLastTurnWidget().render({ id: 'last', type: 'tokens-last-turn', metadata: { display: 'turn' } }, context, DEFAULT_SETTINGS)).toBeNull();
+        expect(new TokensLastTurnWidget().render({ id: 'last', type: 'tokens-last-turn', metadata: { display: 'turn' } }, {}, DEFAULT_SETTINGS)).toBeNull();
+    });
 });

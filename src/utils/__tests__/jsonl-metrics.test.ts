@@ -155,6 +155,25 @@ describe('jsonl transcript metrics', () => {
         expect(metrics.contextLength).toBe(live.contextLengthTokens);
     });
 
+    it('counts real user prompts as turns, skipping tool results, meta rows and sidechains', async () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-jsonl-metrics-'));
+        tempRoots.push(root);
+        const transcriptPath = path.join(root, 'turns.jsonl');
+        fs.writeFileSync(transcriptPath, [
+            JSON.stringify({ type: 'user', message: { role: 'user', content: 'first' } }),
+            JSON.stringify({ type: 'assistant', timestamp: '2026-01-01T10:00:01.000Z', message: { id: 'msg_1', stop_reason: 'tool_use', usage: { input_tokens: 10, output_tokens: 5 } } }),
+            JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: 'ok' }] }, toolUseResult: { stdout: 'ok' } }),
+            JSON.stringify({ type: 'user', isMeta: true, message: { role: 'user', content: 'synthetic note' } }),
+            JSON.stringify({ type: 'user', isSidechain: true, message: { role: 'user', content: 'agent prompt' } }),
+            JSON.stringify({ type: 'user', message: { role: 'user', content: 'second' } }),
+            JSON.stringify({ type: 'assistant', timestamp: '2026-01-01T10:00:05.000Z', message: { id: 'msg_2', stop_reason: 'end_turn', usage: { input_tokens: 20, output_tokens: 8 } } })
+        ].join('\n'));
+
+        const analysis = await getTranscriptAnalysis(transcriptPath, { includeLastTurnTokens: true });
+
+        expect(analysis.tokenMetrics.turnCount).toBe(2);
+    });
+
     it('formats session duration as <1m for sub-minute transcripts', async () => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-jsonl-metrics-'));
         tempRoots.push(root);
