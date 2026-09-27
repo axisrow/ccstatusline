@@ -6,6 +6,7 @@ import type { WidgetItem } from '../types/Widget';
 
 import type { UsageData } from './usage';
 import { fetchUsageData } from './usage';
+import { createUsageMemoryCache } from './usage-fetch';
 import type { UsageDataField } from './usage-types';
 import {
     WEEKLY_MODEL_USAGE_BUCKETS,
@@ -226,7 +227,10 @@ export async function prefetchUsageDataIfNeeded(lines: WidgetItem[][], data?: St
         return rateLimitsData;
     }
 
-    const apiData = await fetchUsageData({ requiredFields: missingFields });
+    // Request-scoped: each prefetch gets its own memory cache, so one render's
+    // result can never leak into another's (#15).
+    const usageCache = createUsageMemoryCache();
+    const apiData = await fetchUsageData({ requiredFields: missingFields, cache: usageCache });
     if (apiData.error && missingRequirements.suppressFetchError) {
         return rateLimitsData;
     }
