@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { renderStatusLines } from './render';
+import { runServeLoop } from './serve';
 import type { StatusJSON } from './types/StatusJSON';
 import { StatusJSONSchema } from './types/StatusJSON';
 import {
@@ -146,6 +147,13 @@ async function main() {
     // Handle --hook mode (cross-platform hook handler for widgets)
     if (process.argv.includes('--hook')) {
         await handleHook();
+        return;
+    }
+
+    // Serve mode (#14): NDJSON requests on stdin, JSON responses on stdout,
+    // one long-lived process instead of a process per repaint.
+    if (process.argv.includes('--serve')) {
+        await runServeLoop();
         return;
     }
 
