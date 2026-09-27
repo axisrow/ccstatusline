@@ -16,6 +16,7 @@ import {
     MERGE_TARGET_HIDDEN_HIDEABLE_STATE,
     isHidden
 } from '../widgets/shared/hideable';
+import { isWidgetHiddenByModel } from '../widgets/shared/model-condition';
 import { withGlobalCompactLabels } from '../widgets/shared/raw-or-labeled';
 
 import {
@@ -900,6 +901,18 @@ export function preRenderAllWidgets(
             const widgetImpl = getWidget(widget.type);
             if (!widgetImpl) {
                 // Preserve index alignment with the configured widgets while skipping unknown output.
+                preRenderedLine.push({
+                    content: '',
+                    plainLength: 0,
+                    widget
+                });
+                continue;
+            }
+
+            // Model-visibility conditions (hideForModels / showForModels)
+            // short-circuit before the widget renders, so separators collapse
+            // around the gap through the usual empty-content path.
+            if (isWidgetHiddenByModel(widget, context)) {
                 preRenderedLine.push({
                     content: '',
                     plainLength: 0,
