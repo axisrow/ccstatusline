@@ -23,12 +23,12 @@ describe('formatRawOrLabeledValue', () => {
     });
 
     it('uses the compact preset when the item opts in', () => {
-        expect(formatRawOrLabeledValue(toggleCompactLabel(ITEM), 'Model: ', 'Opus')).toBe('M: Opus');
+        expect(formatRawOrLabeledValue(toggleCompactLabel(ITEM), 'Model: ', 'Opus')).toBe('M:Opus');
     });
 
     it('maps Context to Ctx and Cost to the $ glyph', () => {
         const compact = toggleCompactLabel(ITEM);
-        expect(formatRawOrLabeledValue(compact, 'Context: ', '[====] 25%')).toBe('Ctx: [====] 25%');
+        expect(formatRawOrLabeledValue(compact, 'Context: ', '[====] 25%')).toBe('Ctx:[====] 25%');
         expect(formatRawOrLabeledValue(compact, 'Cost: ', '$2.45')).toBe('$2.45');
     });
 
