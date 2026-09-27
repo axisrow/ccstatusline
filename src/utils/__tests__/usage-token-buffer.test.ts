@@ -1,4 +1,5 @@
 import * as childProcess from 'child_process';
+import * as fs from 'fs';
 import { createRequire } from 'module';
 import type { Mock } from 'vitest';
 import {
@@ -34,6 +35,7 @@ describe('getUsageToken dump-keychain behavior', () => {
         mockedExecFileSync.mockReset();
         mockedExecFileSync.mockImplementation(realExecFileSync);
         vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+        vi.spyOn(fs, 'statSync').mockImplementation(() => { throw new Error('cache missing'); });
     });
 
     afterEach(() => {
