@@ -58,7 +58,7 @@ describe('compact labels rendering', () => {
     });
 
     it('shortens mapped labels when compactLabels is on', () => {
-        expect(renderLine(TRIO, createSettings({ compactLabels: true }))).toBe('M: Opus 4.6 | $2.46');
+        expect(renderLine(TRIO, createSettings({ compactLabels: true }))).toBe('M:Opus 4.6 | $2.46');
     });
 
     it('lets a per-widget opt-out beat the global setting', () => {
@@ -67,7 +67,7 @@ describe('compact labels rendering', () => {
             { id: '2', type: 'separator', character: '|' },
             { id: '3', type: 'session-cost', metadata: { compactLabel: 'false' } }
         ];
-        expect(renderLine(widgets, createSettings({ compactLabels: true }))).toBe('M: Opus 4.6 | Cost: $2.46');
+        expect(renderLine(widgets, createSettings({ compactLabels: true }))).toBe('M:Opus 4.6 | Cost: $2.46');
     });
 
     it('lets a per-widget opt-in work without the global setting', () => {
@@ -76,7 +76,7 @@ describe('compact labels rendering', () => {
             { id: '2', type: 'separator', character: '|' },
             { id: '3', type: 'session-cost' }
         ];
-        expect(renderLine(widgets, createSettings())).toBe('M: Opus 4.6 | Cost: $2.46');
+        expect(renderLine(widgets, createSettings())).toBe('M:Opus 4.6 | Cost: $2.46');
     });
 
     it('the per-widget (j) toggle beats the global setting at render time', () => {
