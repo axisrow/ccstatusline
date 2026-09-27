@@ -36,7 +36,11 @@ const MAX_LOCK_HORIZON = 24 * 60 * 60; // seconds
 const MACOS_USAGE_CREDENTIALS_SERVICE = 'Claude Code-credentials';
 const MACOS_SECURITY_DUMP_MAX_BUFFER = 8 * 1024 * 1024;
 
-export interface FetchUsageDataOptions { requiredFields?: readonly UsageDataField[] }
+export interface FetchUsageDataOptions {
+    requiredFields?: readonly UsageDataField[];
+    /** Request-scoped memory cache; a fresh one per render (#15). */
+    cache: UsageMemoryCache;
+}
 
 // The access token is what the API is called with; the refresh token is kept
 // alongside it only to fingerprint the account (see getUsageCacheIdentity).
@@ -345,10 +349,18 @@ export function parseUsageApiResponse(rawJson: string): UsageData | null {
     return result;
 }
 
-// Memory caches
-let cachedUsageData: UsageData | null = null;
-let usageCacheTime = 0;
-let usageErrorCacheMaxAge = LOCK_MAX_AGE;
+// Memory cache. Scoped to a single request: callers create a fresh
+// UsageMemoryCache per render (#15) instead of sharing one process-global
+// result, so concurrent requests cannot serve each other stale data.
+export interface UsageMemoryCache {
+    data: UsageData | null;
+    time: number;
+    errorMaxAge: number;
+}
+
+export function createUsageMemoryCache(): UsageMemoryCache {
+    return { data: null, time: 0, errorMaxAge: LOCK_MAX_AGE };
+}
 
 type UsageLockError = z.infer<typeof UsageLockErrorSchema>;
 
@@ -365,18 +377,18 @@ function ensureCacheDirExists(): void {
     }
 }
 
-function setCachedUsageError(error: UsageError, now: number, maxAge = LOCK_MAX_AGE): UsageData {
+function setCachedUsageError(cache: UsageMemoryCache, error: UsageError, now: number, maxAge = LOCK_MAX_AGE): UsageData {
     const errorData: UsageData = { error };
-    cachedUsageData = errorData;
-    usageCacheTime = now;
-    usageErrorCacheMaxAge = maxAge;
+    cache.data = errorData;
+    cache.time = now;
+    cache.errorMaxAge = maxAge;
     return errorData;
 }
 
-function cacheUsageData(data: UsageData, now: number): UsageData {
-    cachedUsageData = data;
-    usageCacheTime = now;
-    usageErrorCacheMaxAge = LOCK_MAX_AGE;
+function cacheUsageData(cache: UsageMemoryCache, data: UsageData, now: number): UsageData {
+    cache.data = data;
+    cache.time = now;
+    cache.errorMaxAge = LOCK_MAX_AGE;
     return data;
 }
 
@@ -408,6 +420,7 @@ function hasRequiredUsageFields(data: UsageData, requiredFields: readonly UsageD
 }
 
 function getStaleUsageOrError(
+    cache: UsageMemoryCache,
     error: UsageError,
     now: number,
     cacheIdentity: UsageCacheIdentity | null,
@@ -416,10 +429,10 @@ function getStaleUsageOrError(
 ): UsageData {
     const stale = readStaleUsageCache(cacheIdentity);
     if (stale && !stale.error && hasRequiredUsageFields(stale, requiredFields)) {
-        return cacheUsageData(stale, now);
+        return cacheUsageData(cache, stale, now);
     }
 
-    return setCachedUsageError(error, now, errorCacheMaxAge);
+    return setCachedUsageError(cache, error, now, errorCacheMaxAge);
 }
 
 function normalizeSecurityTimedateValue(rawValue: string): string | null {
@@ -800,18 +813,19 @@ async function fetchFromUsageApi(token: string): Promise<UsageApiFetchResult> {
     });
 }
 
-export async function fetchUsageData(options: FetchUsageDataOptions = {}): Promise<UsageData> {
+export async function fetchUsageData(options: FetchUsageDataOptions): Promise<UsageData> {
     const now = Math.floor(Date.now() / 1000);
     const requiredFields = options.requiredFields ?? [];
+    const cache = options.cache;
 
     // Check memory cache (fast path)
-    if (cachedUsageData) {
-        const cacheAge = now - usageCacheTime;
-        if (!cachedUsageData.error && cacheAge < CACHE_MAX_AGE && hasRequiredUsageFields(cachedUsageData, requiredFields)) {
-            return cachedUsageData;
+    if (cache.data) {
+        const cacheAge = now - cache.time;
+        if (!cache.data.error && cacheAge < CACHE_MAX_AGE && hasRequiredUsageFields(cache.data, requiredFields)) {
+            return cache.data;
         }
-        if (cachedUsageData.error && cacheAge < usageErrorCacheMaxAge) {
-            return cachedUsageData;
+        if (cache.data.error && cacheAge < cache.errorMaxAge) {
+            return cache.data;
         }
     }
 
@@ -833,7 +847,7 @@ export async function fetchUsageData(options: FetchUsageDataOptions = {}): Promi
             if (fileData && !fileData.error
                 && tokenHashMatches(readCachedTokenHash(rawCache), cacheIdentity)
                 && hasRequiredUsageFields(fileData, requiredFields)) {
-                return cacheUsageData(fileData, now);
+                return cacheUsageData(cache, fileData, now);
             }
         }
     } catch {
@@ -841,12 +855,13 @@ export async function fetchUsageData(options: FetchUsageDataOptions = {}): Promi
     }
 
     if (!token) {
-        return getStaleUsageOrError('no-credentials', now, cacheIdentity, LOCK_MAX_AGE, requiredFields);
+        return getStaleUsageOrError(cache, 'no-credentials', now, cacheIdentity, LOCK_MAX_AGE, requiredFields);
     }
 
     const activeLock = readActiveUsageLock(now);
     if (activeLock) {
         return getStaleUsageOrError(
+            cache,
             activeLock.error,
             now,
             cacheIdentity,
@@ -863,23 +878,23 @@ export async function fetchUsageData(options: FetchUsageDataOptions = {}): Promi
 
         if (response.kind === 'rate-limited') {
             writeUsageLock(now + response.retryAfterSeconds, 'rate-limited');
-            return getStaleUsageOrError('rate-limited', now, cacheIdentity, response.retryAfterSeconds, requiredFields);
+            return getStaleUsageOrError(cache, 'rate-limited', now, cacheIdentity, response.retryAfterSeconds, requiredFields);
         }
 
         if (response.kind === 'error') {
-            return getStaleUsageOrError('api-error', now, cacheIdentity, LOCK_MAX_AGE, requiredFields);
+            return getStaleUsageOrError(cache, 'api-error', now, cacheIdentity, LOCK_MAX_AGE, requiredFields);
         }
 
         const usageData = parseUsageApiResponse(response.body);
         if (!usageData) {
             writeUsageLock(now + LOCK_MAX_AGE, 'parse-error');
-            return getStaleUsageOrError('parse-error', now, cacheIdentity, LOCK_MAX_AGE, requiredFields);
+            return getStaleUsageOrError(cache, 'parse-error', now, cacheIdentity, LOCK_MAX_AGE, requiredFields);
         }
 
         // Validate we got actual data
         if (usageData.sessionUsage === undefined && usageData.weeklyUsage === undefined) {
             writeUsageLock(now + LOCK_MAX_AGE, 'parse-error');
-            return getStaleUsageOrError('parse-error', now, cacheIdentity, LOCK_MAX_AGE, requiredFields);
+            return getStaleUsageOrError(cache, 'parse-error', now, cacheIdentity, LOCK_MAX_AGE, requiredFields);
         }
 
         // Save to cache
@@ -897,9 +912,9 @@ export async function fetchUsageData(options: FetchUsageDataOptions = {}): Promi
             clearUsageLock();
         }
 
-        return cacheUsageData(usageData, now);
+        return cacheUsageData(cache, usageData, now);
     } catch {
         writeUsageLock(now + LOCK_MAX_AGE, 'parse-error');
-        return getStaleUsageOrError('parse-error', now, cacheIdentity, LOCK_MAX_AGE, requiredFields);
+        return getStaleUsageOrError(cache, 'parse-error', now, cacheIdentity, LOCK_MAX_AGE, requiredFields);
     }
 }

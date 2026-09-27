@@ -42,6 +42,23 @@ export interface CompactionData {
     tokensReclaimed: number;
 }
 
+/**
+ * Everything a render needs from the surrounding process, resolved once per
+ * request by the entry point. Render-path code reads process state through
+ * this snapshot instead of touching process/env directly, so a future
+ * shared-process runner (#14) can serve concurrent requests (#15).
+ */
+export interface RenderInvocation {
+    /** Resolved settings.json path for this request. */
+    configPath: string;
+    /** Working directory snapshot for this request. */
+    cwd: string;
+    /** Environment snapshot for this request. */
+    env: NodeJS.ProcessEnv;
+    /** Terminal width probed once per request (null = no TTY found). */
+    terminalWidth: number | null;
+}
+
 export interface RenderContext {
     data?: StatusJSON;
     tokenMetrics?: TokenMetrics | null;

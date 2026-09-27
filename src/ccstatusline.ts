@@ -1,22 +1,16 @@
 #!/usr/bin/env node
-import chalk from 'chalk';
-
-import type { SkillsMetrics } from './types';
-import type { RenderContext } from './types/RenderContext';
+import { renderStatusLines } from './render';
 import type { StatusJSON } from './types/StatusJSON';
 import { StatusJSONSchema } from './types/StatusJSON';
-import { getVisibleText } from './utils/ansi';
-import { prefetchClaudeStatusIfNeeded } from './utils/claude-service-status';
 import {
     isCliMode,
     runCli
 } from './utils/cli';
-import { updateColorMap } from './utils/colors';
-import { ZERO_COMPACTION_STATS } from './utils/compaction';
 import {
-    getConfigLoadError,
+    getConfigPath,
     initConfigPath,
     loadSettings,
+    loadSettingsFrom,
     saveSettings
 } from './utils/config';
 import {
@@ -24,31 +18,10 @@ import {
     refreshGitReviewCacheFromCli
 } from './utils/git-review-cache';
 import { handleHookInput } from './utils/hook-handler';
-import { getTranscriptAnalysis } from './utils/jsonl';
-import { advanceGlobalPowerlineThemeIndex } from './utils/powerline-theme-index';
-import {
-    buildConfigWarningBadge,
-    calculateMaxWidthsFromPreRendered,
-    countPowerlineStartCapSlots,
-    preRenderAllWidgets,
-    renderStatusLine
-} from './utils/renderer';
-import { advanceGlobalSeparatorIndex } from './utils/separator-index';
-import { getSkillsMetrics } from './utils/skills';
-import {
-    getWidgetSpeedWindowSeconds,
-    isWidgetSpeedWindowEnabled
-} from './utils/speed-window';
 import {
     getPackageVersion,
     getTerminalWidth
 } from './utils/terminal';
-import { prefetchUsageDataIfNeeded } from './utils/usage-prefetch';
-
-function hasSessionDurationInStatusJson(data: StatusJSON): boolean {
-    const durationMs = data.cost?.total_duration_ms;
-    return typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs >= 0;
-}
 
 async function readStdin(): Promise<string | null> {
     // Check if stdin is a TTY (terminal) - if it is, there's no piped data
@@ -92,180 +65,30 @@ async function ensureWindowsUtf8CodePage() {
     }
 }
 
-async function renderMultipleLines(data: StatusJSON) {
-    const settings = await loadSettings();
-    const configError = getConfigLoadError();
-
-    // Set global chalk level based on settings
-    chalk.level = settings.colorLevel;
-
-    // Update color map after setting chalk level
-    updateColorMap();
-
-    // Get all lines to render
-    const lines = settings.lines;
-
-    // Check if session clock is needed
-    const hasSessionClock = lines.some(line => line.some(item => item.type === 'session-clock'));
-
-    const speedWidgetTypes = new Set(['output-speed', 'input-speed', 'total-speed']);
-    const hasSpeedItems = lines.some(line => line.some(item => speedWidgetTypes.has(item.type)));
-    const hasCompactionWidget = lines.some(line => line.some(item => item.type === 'compaction-counter'));
-    const hasThinkingEffortWidget = lines.some(line => line.some(item => item.type === 'thinking-effort'));
-    const hasSessionNameWidget = lines.some(line => line.some(item => item.type === 'session-name'));
-    const hasLastTurnTokensWidget = lines.some(line => line.some(item => item.type === 'tokens-last-turn'));
-    const needsTranscriptThinkingEffort = hasThinkingEffortWidget
-        && (!data.effort || !('level' in data.effort));
-    const requestedSpeedWindows = new Set<number>();
-    for (const line of lines) {
-        for (const item of line) {
-            if (speedWidgetTypes.has(item.type) && isWidgetSpeedWindowEnabled(item)) {
-                requestedSpeedWindows.add(getWidgetSpeedWindowSeconds(item));
-            }
-        }
-    }
-
-    const transcriptAnalysisPromise = data.transcript_path
-        ? getTranscriptAnalysis(data.transcript_path, {
-            includeSessionDuration: hasSessionClock && !hasSessionDurationInStatusJson(data),
-            includeSpeedMetrics: hasSpeedItems,
-            includeSubagents: true,
-            speedWindowSeconds: Array.from(requestedSpeedWindows),
-            includeCompactionStats: hasCompactionWidget,
-            includeThinkingEffort: needsTranscriptThinkingEffort,
-            includeSessionName: hasSessionNameWidget,
-            includeLastTurnTokens: hasLastTurnTokensWidget
-        })
-        : Promise.resolve(null);
-    const [transcriptAnalysis, usageData, claudeStatusData] = await Promise.all([
-        transcriptAnalysisPromise,
-        prefetchUsageDataIfNeeded(lines, data),
-        prefetchClaudeStatusIfNeeded(lines)
-    ]);
-
-    const tokenMetrics = transcriptAnalysis?.tokenMetrics ?? null;
-    const sessionDuration = transcriptAnalysis?.sessionDuration ?? null;
-    const speedMetrics = transcriptAnalysis?.speedMetricsCollection?.sessionAverage ?? null;
-    const windowedSpeedMetrics = transcriptAnalysis?.speedMetricsCollection?.windowed ?? null;
-
-    let skillsMetrics: SkillsMetrics | null = null;
-    if (data.session_id) {
-        skillsMetrics = getSkillsMetrics(data.session_id);
-    }
-
-    const compactionData = hasCompactionWidget
-        ? (transcriptAnalysis?.compactionData ?? ZERO_COMPACTION_STATS)
-        : null;
-
-    // Create render context
-    const context: RenderContext = {
-        data,
-        tokenMetrics,
-        speedMetrics,
-        windowedSpeedMetrics,
-        usageData,
-        claudeStatusData,
-        sessionDuration,
-        transcriptSessionName: hasSessionNameWidget
-            ? (transcriptAnalysis?.sessionName ?? null)
-            : undefined,
-        transcriptThinkingEffort: needsTranscriptThinkingEffort
-            ? (transcriptAnalysis?.thinkingEffort ?? null)
-            : undefined,
-        skillsMetrics,
-        compactionData,
-        terminalWidth: getTerminalWidth({
-            sessionId: data.session_id,
-            ttlSeconds: settings.terminalWidthCacheTtlSeconds
-        }),
-        isPreview: false,
-        minimalist: settings.minimalistMode,
-        gitCacheTtlSeconds: settings.gitCacheTtlSeconds,
-        customCommandCacheTtlSeconds: settings.customCommandCacheTtlSeconds,
-        gitReviewNeedsChecks: lines.some(line => line.some(item => item.type === 'git-ci-status'))
+// Snapshot everything the render needs from this process (#15): one invocation
+// context per request, so the shared-process runner can vary these per request.
+function createInvocationFromProcess(terminalWidth: number | null) {
+    return {
+        configPath: getConfigPath(),
+        cwd: process.cwd(),
+        env: { ...process.env },
+        terminalWidth
     };
+}
 
-    // Always pre-render all widgets once (for efficiency)
-    const preRenderedLines = preRenderAllWidgets(lines, settings, context);
-    const preCalculatedMaxWidths = calculateMaxWidthsFromPreRendered(preRenderedLines, settings);
+async function renderMultipleLines(data: StatusJSON) {
+    const loaded = await loadSettingsFrom(getConfigPath());
 
-    // Render each line using pre-rendered content
-    let globalSeparatorIndex = 0;
-    let globalPowerlineThemeIndex = 0;
-    let globalPowerlineStartCapIndex = 0;
-    let configBadgePrepended = false;
-    for (let i = 0; i < lines.length; i++) {
-        const lineItems = lines[i];
-        if (lineItems && lineItems.length > 0) {
-            const preRenderedWidgets = preRenderedLines[i] ?? [];
-            const lineContext = {
-                ...context,
-                lineIndex: i,
-                globalSeparatorIndex,
-                globalPowerlineThemeIndex,
-                globalPowerlineStartCapIndex
-            };
-            let line = renderStatusLine(lineItems, settings, lineContext, preRenderedWidgets, preCalculatedMaxWidths);
+    // Terminal width is resolved once per request from process state (memoized
+    // probe + session L2 cache) and passed into the render explicitly.
+    const terminalWidth = getTerminalWidth({
+        sessionId: data.session_id,
+        ttlSeconds: loaded.settings.terminalWidthCacheTtlSeconds
+    });
 
-            // Only output the line if it has content (not just ANSI codes)
-            // Strip ANSI codes to check if there's actual text
-            const strippedLine = getVisibleText(line).trim();
-            if (strippedLine.length > 0) {
-                if (configError && !configBadgePrepended) {
-                    // On the error path settings are always inMemoryDefaults(), whose separators render as ' | '.
-                    line = `${buildConfigWarningBadge(settings.colorLevel)} | ${line}`;
-                    configBadgePrepended = true;
-                }
-
-                // Replace all spaces with non-breaking spaces to prevent VSCode trimming
-                let outputLine = line.replace(/ /g, '\u00A0');
-
-                // Add reset code at the beginning to override Claude Code's dim setting
-                outputLine = '\x1b[0m' + outputLine;
-                console.log(outputLine);
-
-                globalSeparatorIndex = advanceGlobalSeparatorIndex(globalSeparatorIndex, lineItems, preRenderedWidgets);
-                if (settings.powerline.enabled) {
-                    globalPowerlineStartCapIndex += countPowerlineStartCapSlots(lineItems, preRenderedWidgets);
-                }
-                if (settings.powerline.enabled && settings.powerline.continueThemeAcrossLines) {
-                    globalPowerlineThemeIndex = advanceGlobalPowerlineThemeIndex(globalPowerlineThemeIndex, preRenderedWidgets);
-                }
-            }
-        }
-    }
-
-    // Defensive fallback: if no content line was emitted, ensure the warning is not lost
-    if (configError && !configBadgePrepended) {
-        console.log('\x1b[0m' + buildConfigWarningBadge(settings.colorLevel).replace(/ /g, '\u00A0'));
-    }
-
-    // Check if there's an update message to display
-    if (settings.updatemessage?.message
-        && settings.updatemessage.message.trim() !== ''
-        && settings.updatemessage.remaining
-        && settings.updatemessage.remaining > 0) {
-        // Display the message
-        console.log(settings.updatemessage.message);
-
-        // Decrement the remaining count
-        const newRemaining = settings.updatemessage.remaining - 1;
-
-        // Update or remove the updatemessage
-        if (newRemaining <= 0) {
-            // Remove the entire updatemessage block
-            const { updatemessage, ...newSettings } = settings;
-            await saveSettings(newSettings);
-        } else {
-            // Update the remaining count
-            await saveSettings({
-                ...settings,
-                updatemessage: {
-                    ...settings.updatemessage,
-                    remaining: newRemaining
-                }
-            });
-        }
+    const { text } = await renderStatusLines(data, loaded, createInvocationFromProcess(terminalWidth));
+    if (text !== '') {
+        console.log(text);
     }
 }
 
