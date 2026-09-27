@@ -222,8 +222,11 @@ describe('compact label keybind reservation', () => {
         expect(capable.has('model')).toBe(true);
         expect(capable.has('session-cost')).toBe(true);
         expect(capable.has('context-bar')).toBe(true);
+        // Presets now cover every labeled widget, tokens and usage included.
+        expect(capable.has('tokens-input')).toBe(true);
+        expect(capable.has('session-usage')).toBe(true);
+        expect(capable.has('weekly-usage')).toBe(true);
         expect(capable.has('git-branch')).toBe(false);
-        expect(capable.has('tokens-input')).toBe(false);
     });
 });
 
