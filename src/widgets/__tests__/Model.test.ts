@@ -48,7 +48,7 @@ describe('ModelWidget', () => {
         it('shortens the label to the compact preset when enabled', () => {
             const ctx = makeContext({ data: { model: { id: 'claude-opus-4-6[1m]', display_name: 'Opus 4.6' } } });
             const compactItem: WidgetItem = { ...ITEM, metadata: { compactLabel: 'true' } };
-            expect(new ModelWidget().render(compactItem, ctx, DEFAULT_SETTINGS)).toBe('M: Opus 4.6');
+            expect(new ModelWidget().render(compactItem, ctx, DEFAULT_SETTINGS)).toBe('M:Opus 4.6');
             expect(new ModelWidget().render({ ...compactItem, rawValue: true }, ctx, DEFAULT_SETTINGS)).toBe('Opus 4.6');
         });
 

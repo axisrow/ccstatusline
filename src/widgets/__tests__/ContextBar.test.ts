@@ -61,7 +61,7 @@ describe('ContextBarWidget', () => {
         const widget = new ContextBarWidget();
         const item = { id: 'ctx', type: 'context-bar', metadata: { compactLabel: 'true' } };
 
-        expect(widget.render(item, context, DEFAULT_SETTINGS)).toBe('Ctx: [bar:15.0:16] 30k/200k (15%)');
+        expect(widget.render(item, context, DEFAULT_SETTINGS)).toBe('Ctx:[bar:15.0:16] 30k/200k (15%)');
         expect(widget.render({ ...item, rawValue: true }, context, DEFAULT_SETTINGS)).toBe('[bar:15.0:16] 30k/200k (15%)');
     });
 
