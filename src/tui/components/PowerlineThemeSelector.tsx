@@ -106,7 +106,7 @@ export const PowerlineThemeSelector: React.FC<PowerlineThemeSelectorProps> = ({
 }) => {
     const isRegular = mode === 'regular';
     const themes = useMemo(
-        () => (isRegular ? ['none', ...getPowerlineThemes().filter((name) => name !== 'custom')] : getPowerlineThemes()),
+        () => (isRegular ? ['none', ...getPowerlineThemes().filter(name => name !== 'custom')] : getPowerlineThemes()),
         [isRegular]
     );
     const currentTheme = isRegular
@@ -142,11 +142,11 @@ export const PowerlineThemeSelector: React.FC<PowerlineThemeSelectorProps> = ({
             ...(isRegular
                 ? { theme: themeName === 'none' ? undefined : themeName }
                 : {
-                        powerline: {
-                            ...latestSettingsRef.current.powerline,
-                            theme: themeName
-                        }
-                    })
+                    powerline: {
+                        ...latestSettingsRef.current.powerline,
+                        theme: themeName
+                    }
+                })
         });
     }, [selectedIndex, themes, isRegular]);
 
