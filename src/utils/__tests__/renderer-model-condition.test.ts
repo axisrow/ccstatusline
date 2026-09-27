@@ -33,7 +33,7 @@ function renderLine(widgets: WidgetItem[], data: Record<string, unknown> | undef
     const context: RenderContext = {
         isPreview: false,
         terminalWidth: 200,
-        data: data as RenderContext['data']
+        data
     };
     const settings = createSettings();
     const preRenderedLines = preRenderAllWidgets([widgets], settings, context);

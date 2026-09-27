@@ -19,7 +19,7 @@ function getModelCandidates(context: RenderContext): string[] {
 
 // Glob match: '*' is any run of characters; comparison is case-insensitive.
 function matchesAnyPattern(value: string, patterns: string[]): boolean {
-    return patterns.some(pattern => {
+    return patterns.some((pattern) => {
         const source = pattern
             .split('*')
             .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
