@@ -185,7 +185,7 @@ export async function renderStatusLines(
                 }
 
                 // Replace all spaces with non-breaking spaces to prevent VSCode trimming
-                let outputLine = line.replace(/ /g, ' ');
+                let outputLine = line.replace(/ /g, '\u00A0');
 
                 // Add reset code at the beginning to override Claude Code's dim setting
                 outputLine = '\x1b[0m' + outputLine;
@@ -204,7 +204,7 @@ export async function renderStatusLines(
 
     // Defensive fallback: if no content line was emitted, ensure the warning is not lost
     if (configError && !configBadgePrepended) {
-        outputLines.push('\x1b[0m' + buildConfigWarningBadge(settings.colorLevel).replace(/ /g, ' '));
+        outputLines.push('\x1b[0m' + buildConfigWarningBadge(settings.colorLevel).replace(/ /g, '\u00A0'));
     }
 
     // Check if there's an update message to display
