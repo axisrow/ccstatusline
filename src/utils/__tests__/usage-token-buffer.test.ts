@@ -36,6 +36,11 @@ describe('getUsageToken dump-keychain behavior', () => {
         mockedExecFileSync.mockImplementation(realExecFileSync);
         vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
         vi.spyOn(fs, 'statSync').mockImplementation(() => { throw new Error('cache missing'); });
+        // The write side of the keychain cache (usage-fetch.ts
+        // keychain-fallback-empty marker, usage.json cache, lock file) must
+        // never touch the real ~/.cache during tests.
+        vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
+        vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
     });
 
     afterEach(() => {
@@ -89,5 +94,22 @@ describe('getUsageToken dump-keychain behavior', () => {
 
         expect(getUsageToken()).toBe('hashed-token');
         expect(dumpMaxBuffer).toBe(8 * 1024 * 1024);
+    });
+
+    it('writes the keychain miss marker when the dump finds no credentials', () => {
+        const readSpy = vi.spyOn(fs, 'readFileSync').mockImplementation(() => { throw new Error('no files'); });
+        const writeSpy = vi.spyOn(fs, 'writeFileSync');
+
+        mockedExecFileSync.mockImplementation((command: string) => {
+            if (command === 'security') {
+                throw new Error('security: item not found');
+            }
+            throw new Error(`Unexpected command: ${command}`);
+        });
+
+        expect(getUsageToken()).toBeNull();
+        expect(writeSpy).toHaveBeenCalledWith(expect.stringContaining('keychain-fallback-empty'), '');
+        expect(writeSpy).not.toHaveBeenCalledWith(expect.stringContaining('usage.lock'), expect.anything());
+        readSpy.mockRestore();
     });
 });
