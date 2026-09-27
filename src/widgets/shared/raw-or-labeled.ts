@@ -10,10 +10,40 @@ import type {
 // label (Cost: $2.46 -> $2.46 — the value's own $ is the glyph). Add entries
 // here to cover more widgets — everything routed through the helper picks
 // them up automatically.
-const COMPACT_LABELS: Record<string, string> = {
+export const COMPACT_LABELS: Record<string, string> = {
     'Model: ': 'M: ',
     'Context: ': 'Ctx: ',
-    'Cost: ': ''
+    'Cost: ': '',
+    'Session: ': 'S: ',
+    'Weekly: ': 'W: ',
+    'Weekly Sonnet: ': 'WS: ',
+    'Weekly Opus: ': 'WO: ',
+    'Weekly Fable: ': 'WF: ',
+    'In: ': 'I: ',
+    'Out: ': 'O: ',
+    'Total: ': 'T: ',
+    'Cached: ': 'C: ',
+    'Turn: ': 'Tr: ',
+    'Cache: ': 'Ca: ',
+    'Cache Read: ': 'CR: ',
+    'Cache Write: ': 'CW: ',
+    'Cache Hit: ': 'CH: ',
+    'Block: ': 'B: ',
+    'Block ': 'B ',
+    'Reset: ': 'R: ',
+    'Reset ': 'R ',
+    'Weekly Reset: ': 'WR: ',
+    'Weekly Reset ': 'WR ',
+    'Overage: ': 'Ov: ',
+    'Overage Used: ': 'OvU: ',
+    'Overage Left: ': 'OvL: ',
+    'Ctx Used: ': 'CU: ',
+    'Ctx Left: ': 'CL: ',
+    // Both usable-context variants share the plain presets: the (u) marker
+    // distinguishes widgets that are rarely shown side by side.
+    'Ctx(u) Used: ': 'CU: ',
+    'Ctx(u) Left: ': 'CL: ',
+    'Claude: ': 'CC: '
 };
 
 const COMPACT_LABEL_METADATA_KEY = 'compactLabel';
