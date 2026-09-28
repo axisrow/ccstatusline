@@ -9,7 +9,10 @@ import {
     getConfigPath,
     loadSettingsFrom
 } from './utils/config';
-import { getTerminalWidth } from './utils/terminal';
+import {
+    getTerminalWidth,
+    resetTerminalWidthCache
+} from './utils/terminal';
 
 // Dependencies of the serve loop, injectable so tests can run hermetically
 // (fixed settings, no terminal probe) while production wires process state.
@@ -22,7 +25,13 @@ export interface ServeDependencies {
 export function createProcessServeDependencies(): ServeDependencies {
     return {
         loadSettings: () => loadSettingsFrom(getConfigPath()),
-        resolveTerminalWidth: (sessionId, ttlSeconds) => getTerminalWidth({ sessionId, ttlSeconds }),
+        resolveTerminalWidth: (sessionId, ttlSeconds) => {
+            // A long-lived serve process must re-probe per request: the width
+            // memo is process-global, so a terminal resize after the first
+            // request would serve the stale width forever, ttl or not.
+            resetTerminalWidthCache();
+            return getTerminalWidth({ sessionId, ttlSeconds });
+        },
         buildInvocation: terminalWidth => ({
             configPath: getConfigPath(),
             cwd: process.cwd(),

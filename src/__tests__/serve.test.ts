@@ -68,4 +68,24 @@ describe('handleServeLine', () => {
         expect(invocation.terminalWidth).toBeNull();
         expect(typeof deps.loadSettings).toBe('function');
     });
+
+    it('re-probes terminal width on every request instead of serving the memo', () => {
+        const deps = createProcessServeDependencies();
+        const originalWidth = process.env.CCSTATUSLINE_WIDTH;
+        try {
+            process.env.CCSTATUSLINE_WIDTH = '80';
+            expect(deps.resolveTerminalWidth(undefined, 0)).toBe(80);
+
+            // A resize between requests must be picked up: the process-global
+            // memo is reset before each probe.
+            process.env.CCSTATUSLINE_WIDTH = '120';
+            expect(deps.resolveTerminalWidth(undefined, 0)).toBe(120);
+        } finally {
+            if (originalWidth === undefined) {
+                delete process.env.CCSTATUSLINE_WIDTH;
+            } else {
+                process.env.CCSTATUSLINE_WIDTH = originalWidth;
+            }
+        }
+    });
 });
