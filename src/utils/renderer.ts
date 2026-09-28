@@ -40,6 +40,7 @@ import {
     parseGradientSpec
 } from './gradient';
 import { fontSafeSeparator } from './powerline';
+import { hasOwnLineTheme } from './powerline-theme-index';
 import { getTerminalWidth } from './terminal';
 import {
     getWidget,
@@ -181,8 +182,9 @@ function renderPowerlineStatusLine(
         endCaps.length > 0 ? (endCaps[(startCapIndex + segmentOffset) % endCaps.length] ?? '') : ''
     );
 
-    // Get theme colors if a theme is set and not 'custom'
-    const themeColors = resolveThemeColors(config.theme as string | undefined, settings);
+    // Get theme colors if a theme is set and not 'custom'. A per-line theme
+    // (settings.lineThemes[lineIndex]) overrides the global powerline theme.
+    const themeColors = resolveThemeColors(settings.lineThemes?.[lineIndex] ?? (config.theme as string | undefined), settings);
 
     // Get color level from settings
     const colorLevel = getColorLevelString(settings.colorLevel);
@@ -217,7 +219,9 @@ function renderPowerlineStatusLine(
         originalIndex: number;
         widget: WidgetItem;
     }[] = [];
-    let widgetColorIndex = continueThemeAcrossLines ? globalThemeColorOffset : 0;
+    // A line with its own theme restarts its palette at slot 0 instead of
+    // continuing the cross-line sequence.
+    let widgetColorIndex = continueThemeAcrossLines && !hasOwnLineTheme(settings, lineIndex) ? globalThemeColorOffset : 0;
 
     const hasNextRenderedWidgetBeforeSeparator = (originalIndex: number): boolean => {
         for (let j = originalIndex + 1; j < widgets.length; j++) {
@@ -1075,7 +1079,10 @@ export function renderStatusLine(
     // equivalents). Explicit per-widget colors win; separators and flex
     // separators are not themed and do not consume palette slots. Merged
     // widgets share one palette slot, matching powerline's cycling.
-    const regularThemePalette = resolveThemeColors(settings.theme, settings)?.bg.map(bgToFg);
+    const regularThemePalette = resolveThemeColors(
+        settings.lineThemes?.[context.lineIndex ?? 0] ?? settings.theme,
+        settings
+    )?.bg.map(bgToFg);
     let themeColorIndex = 0;
 
     // Helper to apply colors with optional background, bold, and dim

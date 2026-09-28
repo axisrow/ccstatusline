@@ -15,6 +15,7 @@ import { List } from './List';
 export type MainMenuOption = 'lines'
     | 'colors'
     | 'theme'
+    | 'lineThemes'
     | 'powerline'
     | 'terminalConfig'
     | 'globalOverrides'
@@ -107,6 +108,12 @@ export function buildMainMenuItems(
             description:
                 'Apply a built-in color theme to regular (non-powerline) mode as foreground colors'
         }]),
+        {
+            label: '🎛️ Line Themes',
+            value: 'lineThemes',
+            description:
+                'Pick a different theme per status line; lines without their own use the global theme'
+        },
         {
             label: '⚡ Powerline Setup',
             value: 'powerline',

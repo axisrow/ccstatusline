@@ -14,7 +14,10 @@ import { ZERO_COMPACTION_STATS } from './utils/compaction';
 import type { LoadedSettings } from './utils/config';
 import { saveSettingsTo } from './utils/config';
 import { getTranscriptAnalysis } from './utils/jsonl';
-import { advanceGlobalPowerlineThemeIndex } from './utils/powerline-theme-index';
+import {
+    advanceGlobalPowerlineThemeIndex,
+    hasOwnLineTheme
+} from './utils/powerline-theme-index';
 import {
     buildConfigWarningBadge,
     calculateMaxWidthsFromPreRendered,
@@ -196,7 +199,11 @@ export async function renderStatusLines(
                     globalPowerlineStartCapIndex += countPowerlineStartCapSlots(lineItems, preRenderedWidgets);
                 }
                 if (settings.powerline.enabled && settings.powerline.continueThemeAcrossLines) {
-                    globalPowerlineThemeIndex = advanceGlobalPowerlineThemeIndex(globalPowerlineThemeIndex, preRenderedWidgets);
+                    // A line with its own theme breaks the cross-line palette
+                    // chain: the next line restarts the global sequence at 0.
+                    globalPowerlineThemeIndex = hasOwnLineTheme(settings, i)
+                        ? 0
+                        : advanceGlobalPowerlineThemeIndex(globalPowerlineThemeIndex, preRenderedWidgets);
                 }
             }
         }

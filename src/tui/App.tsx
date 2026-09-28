@@ -118,6 +118,8 @@ type AppScreen = 'main'
     | 'colorLines'
     | 'colors'
     | 'theme'
+    | 'themeLines'
+    | 'lineTheme'
     | 'terminalWidth'
     | 'terminalConfig'
     | 'globalOverrides'
@@ -460,6 +462,22 @@ export function buildInvalidConfigSaveConfirm(
         },
         cancelScreen: 'main'
     };
+}
+
+// Map per-line themes onto a new lines array. LineSelector's append/delete/
+// move copy only the outer array (inner line arrays keep their references),
+// so reference identity maps each line to its old theme; an appended line
+// (a fresh array) gets undefined (inherit).
+export function syncLineThemesWithLines(
+    oldLines: WidgetItem[][],
+    newLines: WidgetItem[][],
+    lineThemes: (string | undefined)[] | undefined
+): (string | undefined)[] {
+    const themes = lineThemes ?? [];
+    return newLines.map((line) => {
+        const oldIndex = oldLines.indexOf(line);
+        return oldIndex >= 0 ? themes[oldIndex] : undefined;
+    });
 }
 
 export const App: React.FC = () => {
@@ -992,6 +1010,9 @@ export const App: React.FC = () => {
             case 'theme':
                 setScreen('theme');
                 break;
+            case 'lineThemes':
+                setScreen('themeLines');
+                break;
             case 'terminalConfig':
                 setScreen('terminalConfig');
                 break;
@@ -1117,7 +1138,11 @@ export const App: React.FC = () => {
     };
 
     const updateLines = (newLines: WidgetItem[][]) => {
-        setSettings({ ...settings, lines: newLines });
+        setSettings({
+            ...settings,
+            lines: newLines,
+            lineThemes: syncLineThemesWithLines(settings.lines, newLines, settings.lineThemes)
+        });
     };
 
     const handleLineSelect = (lineIndex: number) => {
@@ -1245,6 +1270,39 @@ export const App: React.FC = () => {
                         onBack={() => {
                             // Go back to line selection for colors
                             setScreen('colorLines');
+                        }}
+                    />
+                )}
+                {screen === 'themeLines' && (
+                    <LineSelector
+                        lines={settings.lines}
+                        onLinesUpdate={updateLines}
+                        onSelect={(line) => {
+                            setMenuSelections(prev => ({ ...prev, lines: line }));
+                            setSelectedLine(line);
+                            setScreen('lineTheme');
+                        }}
+                        onBack={() => {
+                            // Save that we came from the 'lineThemes' entry
+                            // (after 'theme': index 2 with powerline, else 3)
+                            setMenuSelections(prev => ({ ...prev, main: settings.powerline.enabled ? 2 : 3 }));
+                            setScreen('main');
+                        }}
+                        initialSelection={menuSelections.lines}
+                        title='Select Line to Edit Theme'
+                        settings={settings}
+                        allowEditing={true}
+                    />
+                )}
+                {screen === 'lineTheme' && (
+                    <PowerlineThemeSelector
+                        key={`lineTheme-${selectedLine}`}
+                        mode={settings.powerline.enabled ? 'powerline' : 'regular'}
+                        lineIndex={selectedLine}
+                        settings={settings}
+                        onUpdate={setSettings}
+                        onBack={() => {
+                            setScreen('themeLines');
                         }}
                     />
                 )}

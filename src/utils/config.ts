@@ -225,7 +225,8 @@ export async function loadSettingsFrom(configPath: string): Promise<LoadedSettin
         return {
             settings: {
                 ...result.data,
-                lines: upgradeLegacyWidgetTypes(result.data.lines)
+                lines: upgradeLegacyWidgetTypes(result.data.lines),
+                lineThemes: normalizeLineThemes(result.data.lineThemes, result.data.lines.length)
             },
             loadError: null
         };
@@ -233,6 +234,17 @@ export async function loadSettingsFrom(configPath: string): Promise<LoadedSettin
         console.error('Error loading settings, using defaults:', error);
         return { settings: inMemoryDefaults(), loadError: 'settings.json could not be read' };
     }
+}
+
+// Clamp lineThemes to the actual line count: drop stale entries past the end
+// and materialize missing ones as undefined (inherit). An array with no real
+// themes collapses to undefined. Reads are out-of-range-safe anyway
+// (lineThemes?.[i] → undefined), so this is purely config hygiene.
+export function normalizeLineThemes(lineThemes: (string | undefined)[] | undefined, lineCount: number): (string | undefined)[] | undefined {
+    if (!lineThemes)
+        return undefined;
+    const normalized = Array.from({ length: lineCount }, (_, i) => lineThemes[i]);
+    return normalized.some(theme => theme !== undefined) ? normalized : undefined;
 }
 
 export async function loadSettings(): Promise<Settings> {

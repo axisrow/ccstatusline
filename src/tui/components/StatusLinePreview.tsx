@@ -13,7 +13,10 @@ import {
     stripOscCodes,
     truncateStyledText
 } from '../../utils/ansi';
-import { advanceGlobalPowerlineThemeIndex } from '../../utils/powerline-theme-index';
+import {
+    advanceGlobalPowerlineThemeIndex,
+    hasOwnLineTheme
+} from '../../utils/powerline-theme-index';
 import {
     calculateMaxWidthsFromPreRendered,
     countPowerlineStartCapSlots,
@@ -114,7 +117,10 @@ export const StatusLinePreview: React.FC<StatusLinePreviewProps> = ({ lines, ter
                     globalPowerlineStartCapIndex += countPowerlineStartCapSlots(lineItems, preRenderedWidgets);
                 }
                 if (settings.powerline.enabled && settings.powerline.continueThemeAcrossLines) {
-                    globalPowerlineThemeIndex = advanceGlobalPowerlineThemeIndex(globalPowerlineThemeIndex, preRenderedWidgets);
+                    // Mirror render.ts: an own-theme line breaks the chain.
+                    globalPowerlineThemeIndex = hasOwnLineTheme(settings, i)
+                        ? 0
+                        : advanceGlobalPowerlineThemeIndex(globalPowerlineThemeIndex, preRenderedWidgets);
                 }
             }
         }
