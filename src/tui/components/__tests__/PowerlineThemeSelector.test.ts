@@ -9,7 +9,10 @@ import {
     vi
 } from 'vitest';
 
-import { DEFAULT_SETTINGS } from '../../../types/Settings';
+import {
+    DEFAULT_SETTINGS,
+    type Settings
+} from '../../../types/Settings';
 import { getPowerlineThemes } from '../../../utils/colors';
 import {
     PowerlineThemeSelector,
@@ -85,6 +88,20 @@ describe('PowerlineThemeSelector helpers', () => {
 
         expect(items).toHaveLength(1);
         expect(items[0]).toMatchObject({
+            label: 'None (no theme)',
+            value: 'none'
+        });
+    });
+
+    it('labels the inherit entry for per-line mode', () => {
+        const items = buildPowerlineThemeItems(['inherit', 'none'], 'inherit');
+
+        expect(items[0]).toMatchObject({
+            label: 'Inherit global theme',
+            description: 'Uses the global theme for this line',
+            value: 'inherit'
+        });
+        expect(items[1]).toMatchObject({
             label: 'None (no theme)',
             value: 'none'
         });
@@ -258,6 +275,105 @@ describe('PowerlineThemeSelector helpers', () => {
             await flushInk();
 
             expect(onUpdate.mock.calls[0]?.[0]?.theme).toBeUndefined();
+        } finally {
+            instance.unmount();
+            instance.cleanup();
+            stdin.destroy();
+            stdout.destroy();
+            stderr.destroy();
+        }
+    });
+
+    it('writes lineThemes for the edited line when navigating in per-line mode', async () => {
+        const firstTheme = getPowerlineThemes().find(name => name !== 'custom');
+        expect(firstTheme).toBeDefined();
+
+        const stdin = createMockStdin();
+        const stdout = createMockStdout();
+        const stderr = createMockStdout();
+        const onUpdate = vi.fn<PowerlineThemeSelectorProps['onUpdate']>();
+        const onBack = vi.fn();
+        const instance = render(
+            React.createElement(PowerlineThemeSelector, {
+                settings: { ...DEFAULT_SETTINGS },
+                onUpdate,
+                onBack,
+                mode: 'regular',
+                lineIndex: 1
+            }),
+            {
+                stdin,
+                stdout,
+                stderr,
+                debug: true,
+                exitOnCtrlC: false,
+                patchConsole: false
+            }
+        );
+
+        try {
+            await flushInk();
+            expect(onUpdate).not.toHaveBeenCalled();
+
+            // The per-line list starts at 'inherit'; two steps down land on
+            // the first real theme and must write only that line's entry.
+            stdin.write('\u001B[B');
+            await flushInk();
+            stdin.write('\u001B[B');
+            await waitForInkCondition(() => onUpdate.mock.calls.length > 0);
+            await flushInk();
+
+            const updated = onUpdate.mock.calls.at(-1)?.[0];
+            expect(updated?.lineThemes?.[1]).toBe(firstTheme);
+            expect(updated?.theme).toBeUndefined();
+        } finally {
+            instance.unmount();
+            instance.cleanup();
+            stdin.destroy();
+            stdout.destroy();
+            stderr.destroy();
+        }
+    });
+
+    it('restores the original settings on escape in per-line mode', async () => {
+        const original: Settings = { ...DEFAULT_SETTINGS, lineThemes: ['dracula'] };
+
+        const stdin = createMockStdin();
+        const stdout = createMockStdout();
+        const stderr = createMockStdout();
+        const onUpdate = vi.fn<PowerlineThemeSelectorProps['onUpdate']>();
+        const onBack = vi.fn();
+        const instance = render(
+            React.createElement(PowerlineThemeSelector, {
+                settings: original,
+                onUpdate,
+                onBack,
+                mode: 'regular',
+                lineIndex: 0
+            }),
+            {
+                stdin,
+                stdout,
+                stderr,
+                debug: true,
+                exitOnCtrlC: false,
+                patchConsole: false
+            }
+        );
+
+        try {
+            await flushInk();
+
+            // Move off 'dracula' (writes an update), then escape.
+            stdin.write('\u001B[A');
+            await waitForInkCondition(() => onUpdate.mock.calls.length > 0);
+            await flushInk();
+
+            stdin.write('\u001B');
+            await flushInk();
+
+            expect(onBack).toHaveBeenCalled();
+            expect(onUpdate).toHaveBeenLastCalledWith(original);
         } finally {
             instance.unmount();
             instance.cleanup();

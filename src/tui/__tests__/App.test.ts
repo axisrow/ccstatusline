@@ -10,6 +10,7 @@ import {
     DEFAULT_SETTINGS,
     type InstallationMetadata
 } from '../../types/Settings';
+import type { WidgetItem } from '../../types/Widget';
 import {
     applyTuiImport,
     buildConfigLoadWarning,
@@ -18,7 +19,8 @@ import {
     getConfirmCancelScreen,
     getCurrentInstallation,
     getPathInferredInstallation,
-    getPinnedVersionMismatch
+    getPinnedVersionMismatch,
+    syncLineThemesWithLines
 } from '../App';
 import {
     buildMainMenuItems,
@@ -189,6 +191,7 @@ describe('Main menu structure', () => {
             'lines',
             'colors',
             'theme',
+            'lineThemes',
             'powerline',
             '-',
             'terminalConfig',
@@ -211,6 +214,7 @@ describe('Main menu structure', () => {
             'lines',
             'colors',
             'theme',
+            'lineThemes',
             'powerline',
             '-',
             'terminalConfig',
@@ -238,6 +242,7 @@ describe('Main menu structure', () => {
             'lines',
             'colors',
             'theme',
+            'lineThemes',
             'powerline',
             '-',
             'terminalConfig',
@@ -277,14 +282,42 @@ describe('Main menu structure', () => {
             sublabel: '(install first)'
         }));
         expect(buildManageInstallationItems()[0]).toEqual(expect.objectContaining({ label: '🔄 Check for Updates' }));
-        expect(getMainMenuInstallSelectionIndex(false)).toBe(8);
-        expect(getMainMenuInstallSelectionIndex(true, autoInstallation)).toBe(9);
-        expect(getMainMenuInstallSelectionIndex(true, pinnedInstallation)).toBe(9);
-        expect(getMainMenuSelectionIndex(buildMainMenuItems(true, false, autoInstallation), 'install')).toBe(9);
+        expect(getMainMenuInstallSelectionIndex(false)).toBe(9);
+        expect(getMainMenuInstallSelectionIndex(true, autoInstallation)).toBe(10);
+        expect(getMainMenuInstallSelectionIndex(true, pinnedInstallation)).toBe(10);
+        expect(getMainMenuSelectionIndex(buildMainMenuItems(true, false, autoInstallation), 'install')).toBe(10);
         expect(getMainMenuSelectionIndex(
             buildMainMenuItems(true, false, pinnedInstallation),
             'manageInstallation'
-        )).toBe(9);
+        )).toBe(10);
+    });
+
+    it('keeps line themes when powerline hides the global theme entry', () => {
+        const values = buildMainMenuItems(true, false, undefined, true)
+            .map(item => item === '-' ? '-' : item.value);
+
+        expect(values).not.toContain('theme');
+        expect(values).toContain('lineThemes');
+        expect(values.indexOf('lineThemes')).toBeLessThan(values.indexOf('powerline'));
+    });
+});
+
+describe('syncLineThemesWithLines', () => {
+    const lineA: WidgetItem[] = [{ id: '1', type: 'custom-text', customText: 'A' }];
+    const lineB: WidgetItem[] = [];
+    const lineC: WidgetItem[] = [{ id: '2', type: 'model' }];
+
+    it('keeps themes with their lines through delete, append, and move', () => {
+        const themes = ['dracula', undefined, 'nord'];
+
+        expect(syncLineThemesWithLines([lineA, lineB, lineC], [lineA, lineC], themes)).toEqual(['dracula', 'nord']);
+        expect(syncLineThemesWithLines([lineA], [lineA, lineB], ['dracula'])).toEqual(['dracula', undefined]);
+        expect(syncLineThemesWithLines([lineA, lineC], [lineC, lineA], ['dracula', 'nord'])).toEqual(['nord', 'dracula']);
+    });
+
+    it('returns inherit entries for missing or undefined themes', () => {
+        expect(syncLineThemesWithLines([lineA], [lineA, lineB], undefined)).toEqual([undefined, undefined]);
+        expect(syncLineThemesWithLines([lineA], [lineA], [])).toEqual([undefined]);
     });
 });
 

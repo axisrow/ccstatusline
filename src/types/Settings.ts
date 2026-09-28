@@ -78,6 +78,12 @@ export const SettingsSchema = z.object({
     // colors. Additive optional key, no version bump needed; unset, 'custom',
     // or an unknown name disables theming. Explicit per-widget colors win.
     theme: z.string().optional(),
+    // Per-line theme overrides, parallel to `lines`: entry i themes line i,
+    // an undefined entry (or a short/absent array) inherits the global theme
+    // (settings.theme in regular mode, powerline.theme in powerline mode),
+    // 'none' disables theming for that line. Additive optional key, no
+    // version bump needed (same precedent as `theme`).
+    lineThemes: z.array(z.string().optional()).optional(),
     globalBold: z.boolean().default(false),
     // Compact label presets (Model: -> M:, Context: -> Ctx:, Cost: -> $) for
     // labeled widgets. Additive v4 key with an off default, so configs written

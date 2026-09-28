@@ -31,17 +31,18 @@ import {
 // array regular mode cycles as foregrounds.
 const fg = (color: string, level: 'ansi16' | 'ansi256' | 'truecolor' = 'truecolor'): string => getColorAnsiCode(color, level, false);
 
-function themedSettings(theme?: string, colorLevel: 1 | 2 | 3 = 3): Settings {
+function themedSettings(theme?: string, colorLevel: 1 | 2 | 3 = 3, lineThemes?: (string | undefined)[]): Settings {
     return {
         ...DEFAULT_SETTINGS,
         colorLevel,
         defaultPadding: '',
-        theme
+        theme,
+        lineThemes
     };
 }
 
-function renderWidgets(settings: Settings, widgets: WidgetItem[]): string {
-    const context: RenderContext = { isPreview: false, data: { session_id: 'test-session' } };
+function renderWidgets(settings: Settings, widgets: WidgetItem[], lineIndex = 0): string {
+    const context: RenderContext = { isPreview: false, lineIndex, data: { session_id: 'test-session' } };
     const preRenderedLines = preRenderAllWidgets([widgets], settings, context);
     const preCalculatedMaxWidths = calculateMaxWidthsFromPreRendered(preRenderedLines, settings);
 
@@ -149,6 +150,36 @@ describe('renderer regular-mode theme', () => {
     it('parses the theme key without a version bump', () => {
         expect(SettingsSchema.parse({ theme: 'dracula' }).theme).toBe('dracula');
         expect(SettingsSchema.parse({}).theme).toBeUndefined();
+    });
+
+    describe('per-line themes (lineThemes)', () => {
+        const widget: WidgetItem[] = [{ id: '1', type: 'custom-text', customText: 'A' }];
+
+        it('overrides the global theme on its line', () => {
+            const settings = themedSettings('dracula', 3, [undefined, 'nord-aurora']);
+
+            expect(renderWidgets(settings, widget, 0)).toContain(fg('hex:BD93F9'));
+            expect(renderWidgets(settings, widget, 1)).toContain(fg('hex:BF616A'));
+            expect(renderWidgets(settings, widget, 1)).not.toContain(fg('hex:BD93F9'));
+        });
+
+        it('inherits the global theme for undefined entries, short arrays, and absent key', () => {
+            expect(renderWidgets(themedSettings('dracula', 3, [undefined]), widget, 0)).toContain(fg('hex:BD93F9'));
+            expect(renderWidgets(themedSettings('dracula', 3, []), widget, 1)).toContain(fg('hex:BD93F9'));
+            expect(renderWidgets(themedSettings('dracula'), widget, 1)).toContain(fg('hex:BD93F9'));
+        });
+
+        it('\'none\' disables theming for its line only', () => {
+            const settings = themedSettings('dracula', 3, ['none']);
+
+            expect(renderWidgets(settings, widget, 0)).not.toContain(fg('hex:BD93F9'));
+            expect(renderWidgets(settings, widget, 1)).toContain(fg('hex:BD93F9'));
+        });
+
+        it('parses the lineThemes key without a version bump', () => {
+            expect(SettingsSchema.parse({ lineThemes: ['nord', undefined, 'dracula'] }).lineThemes).toEqual(['nord', undefined, 'dracula']);
+            expect(SettingsSchema.parse({}).lineThemes).toBeUndefined();
+        });
     });
 
     // Every shipped theme must behave identically in regular mode: same slot

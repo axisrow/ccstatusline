@@ -1,3 +1,4 @@
+import type { Settings } from '../types/Settings';
 import type { WidgetItem } from '../types/Widget';
 
 export interface PowerlineThemeSlotEntry {
@@ -31,4 +32,10 @@ export function countPowerlineThemeSlots(entries: PowerlineThemeSlotEntry[]): nu
 
 export function advanceGlobalPowerlineThemeIndex(currentIndex: number, entries: PowerlineThemeSlotEntry[]): number {
     return currentIndex + countPowerlineThemeSlots(entries);
+}
+
+// True when line `lineIndex` carries its own theme ('none' counts: it is an
+// explicit per-line setting, not an inherit-from-global fallback).
+export function hasOwnLineTheme(settings: Pick<Settings, 'lineThemes'>, lineIndex: number): boolean {
+    return settings.lineThemes?.[lineIndex] !== undefined;
 }
