@@ -9,6 +9,8 @@ import type {
 } from '../types/Widget';
 import { getClaudeJsonPath } from '../utils/claude-settings';
 
+import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
+
 interface ClaudeJson { oauthAccount?: { emailAddress?: string } }
 
 export class ClaudeAccountEmailWidget implements Widget {
@@ -22,7 +24,7 @@ export class ClaudeAccountEmailWidget implements Widget {
 
     render(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
         if (context.isPreview) {
-            return item.rawValue ? 'you@example.com' : 'Account: you@example.com';
+            return formatRawOrLabeledValue(item, 'Account: ', 'you@example.com');
         }
 
         try {
@@ -34,7 +36,7 @@ export class ClaudeAccountEmailWidget implements Widget {
                 return null;
             }
 
-            return item.rawValue ? email : `Account: ${email}`;
+            return formatRawOrLabeledValue(item, 'Account: ', email);
         } catch {
             return null;
         }

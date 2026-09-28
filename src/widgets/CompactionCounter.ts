@@ -25,6 +25,7 @@ import {
     toggleNerdFont,
     type NerdFontFormats
 } from './shared/metadata';
+import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
 import {
     getSlotSymbol,
     getSymbolKeybind,
@@ -133,7 +134,7 @@ function formatTriggerSuffix(byTrigger: CompactionData['byTrigger']): string {
 }
 
 function formatStats(data: CompactionData, item: WidgetItem, icon: string, format: NumberFormat): string {
-    let out = formatCount(data.count, getFormat(item), icon);
+    let out = formatCount(data.count, getFormat(item), item, icon);
     if (isMetadataFlagEnabled(item, SHOW_TRIGGERS_METADATA_KEY)) {
         out += formatTriggerSuffix(data.byTrigger);
     }
@@ -143,10 +144,10 @@ function formatStats(data: CompactionData, item: WidgetItem, icon: string, forma
     return out;
 }
 
-function formatCount(count: number, format: CompactionCounterFormat, icon: string): string {
+function formatCount(count: number, format: CompactionCounterFormat, item: WidgetItem, icon: string): string {
     switch (format) {
         case 'icon-space-number': return `${icon} ${count}`;
-        case 'text-and-number': return `Compactions: ${count}`;
+        case 'text-and-number': return formatRawOrLabeledValue(item, 'Compactions: ', String(count));
         case 'number': return String(count);
     }
 }

@@ -17,6 +17,7 @@ import {
     toggleNerdFont,
     type NerdFontFormats
 } from './shared/metadata';
+import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
 
 const DOT_ON = '●';
 const DOT_OFF = '○';
@@ -44,7 +45,7 @@ const NERD_FONT_FORMATS: NerdFontFormats<SandboxFormat> = {
     canUseNerdFont
 };
 
-function formatStatus(enabled: boolean, format: SandboxFormat, nerdFont: boolean, rawValue: boolean): string {
+function formatStatus(enabled: boolean, format: SandboxFormat, nerdFont: boolean, item: WidgetItem): string {
     const stateText = enabled ? 'ON' : 'OFF';
     const glyph = nerdFont
         ? (enabled ? LOCK_NERD_FONT : UNLOCK_NERD_FONT)
@@ -52,11 +53,11 @@ function formatStatus(enabled: boolean, format: SandboxFormat, nerdFont: boolean
 
     switch (format) {
         case 'glyph':
-            return rawValue ? glyph : `SB: ${glyph}`;
+            return formatRawOrLabeledValue(item, 'SB: ', glyph);
         case 'text':
-            return rawValue ? stateText : `SB: ${stateText}`;
+            return formatRawOrLabeledValue(item, 'SB: ', stateText);
         case 'word':
-            return rawValue ? stateText : `Sandbox: ${stateText}`;
+            return formatRawOrLabeledValue(item, 'Sandbox: ', stateText);
     }
 }
 
@@ -104,7 +105,7 @@ export class SandboxStatusWidget implements Widget {
         const nerdFont = isNerdFontEnabled(item, NERD_FONT_FORMATS);
 
         if (context.isPreview) {
-            return formatStatus(true, format, nerdFont, item.rawValue ?? false);
+            return formatStatus(true, format, nerdFont, item);
         }
 
         const config = getSandboxConfig(resolveClaudeConfigCwd(context));
@@ -112,7 +113,7 @@ export class SandboxStatusWidget implements Widget {
             return null;
         }
 
-        return formatStatus(config.enabled, format, nerdFont, item.rawValue ?? false);
+        return formatStatus(config.enabled, format, nerdFont, item);
     }
 
     getCustomKeybinds(item?: WidgetItem): CustomKeybind[] {

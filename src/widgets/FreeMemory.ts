@@ -14,6 +14,8 @@ import {
     resolveNumberFormat
 } from '../utils/number-format';
 
+import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
+
 function formatBytes(bytes: number, format: NumberFormat): string {
     const GB = 1024 ** 3;
     const MB = 1024 ** 2;
@@ -79,7 +81,7 @@ export class FreeMemoryWidget implements Widget {
         const format = resolveNumberFormat('memory', item, settings);
         if (context.isPreview) {
             const value = `${formatBytes(12.4 * 1024 ** 3, format)}/${formatBytes(16 * 1024 ** 3, format)}`;
-            return item.rawValue ? value : `Mem: ${value}`;
+            return formatRawOrLabeledValue(item, 'Mem: ', value);
         }
 
         const total = os.totalmem();
@@ -95,7 +97,7 @@ export class FreeMemoryWidget implements Widget {
 
         const value = `${formatBytes(used, format)}/${formatBytes(total, format)}`;
 
-        return item.rawValue ? value : `Mem: ${value}`;
+        return formatRawOrLabeledValue(item, 'Mem: ', value);
     }
 
     supportsRawValue(): boolean { return true; }

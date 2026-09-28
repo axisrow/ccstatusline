@@ -13,6 +13,8 @@ import {
 import { resolveNumberFormat } from '../utils/number-format';
 import { formatTokens } from '../utils/renderer';
 
+import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
+
 export class ContextWindowWidget implements Widget {
     getDefaultColor(): string { return 'brightBlack'; }
     getDescription(): string { return 'Shows the total context window size for the current model'; }
@@ -26,7 +28,7 @@ export class ContextWindowWidget implements Widget {
         const format = resolveNumberFormat('token', item, settings);
         if (context.isPreview) {
             const value = formatTokens(200000, format);
-            return item.rawValue ? value : `Win: ${value}`;
+            return formatRawOrLabeledValue(item, 'Win: ', value);
         }
 
         let total = getContextWindowSize(context.data);
@@ -40,7 +42,7 @@ export class ContextWindowWidget implements Widget {
             return null;
         }
 
-        return item.rawValue ? formatTokens(total, format) : `Win: ${formatTokens(total, format)}`;
+        return formatRawOrLabeledValue(item, 'Win: ', formatTokens(total, format));
     }
 
     supportsRawValue(): boolean { return true; }
