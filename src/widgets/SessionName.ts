@@ -16,6 +16,7 @@ import {
     getMaxWidthModifier,
     renderMaxWidthEditor
 } from './shared/max-width';
+import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
 
 export class SessionNameWidget implements Widget {
     getDefaultColor(): string { return 'cyan'; }
@@ -32,7 +33,7 @@ export class SessionNameWidget implements Widget {
 
     render(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
         if (context.isPreview) {
-            return item.rawValue ? 'my-session' : 'Session: my-session';
+            return formatRawOrLabeledValue(item, 'Session: ', 'my-session');
         }
 
         const sessionName = context.transcriptSessionName === undefined
@@ -42,7 +43,7 @@ export class SessionNameWidget implements Widget {
             return null;
         }
 
-        return applyMaxWidth(item.rawValue ? sessionName : `Session: ${sessionName}`, item.maxWidth);
+        return applyMaxWidth(formatRawOrLabeledValue(item, 'Session: ', sessionName), item.maxWidth);
     }
 
     getCustomKeybinds(): CustomKeybind[] {

@@ -13,6 +13,8 @@ import {
     type TranscriptThinkingEffort
 } from '../utils/jsonl';
 
+import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
+
 export type ThinkingEffortLevel = TranscriptThinkingEffort;
 
 function resolveThinkingEffortFromStatusJson(context: RenderContext): ResolvedThinkingEffort | null | undefined {
@@ -68,11 +70,11 @@ export class ThinkingEffortWidget implements Widget {
 
     render(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
         if (context.isPreview) {
-            return item.rawValue ? 'high' : 'Thinking: high';
+            return formatRawOrLabeledValue(item, 'Thinking: ', 'high');
         }
 
         const effort = formatEffort(resolveThinkingEffort(context));
-        return item.rawValue ? effort : `Thinking: ${effort}`;
+        return formatRawOrLabeledValue(item, 'Thinking: ', effort);
     }
 
     supportsRawValue(): boolean { return true; }

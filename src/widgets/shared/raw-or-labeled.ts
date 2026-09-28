@@ -43,7 +43,18 @@ export const COMPACT_LABELS: Record<string, string> = {
     // distinguishes widgets that are rarely shown side by side.
     'Ctx(u) Used: ': 'CU:',
     'Ctx(u) Left: ': 'CL:',
-    'Claude: ': 'CC:'
+    'Claude: ': 'CC:',
+    'Mem: ': 'Mem:',
+    'Ctx: ': 'Ctx:',
+    'Win: ': 'Win:',
+    'SB: ': 'SB:',
+    'Sandbox: ': 'SB:',
+    'Session ID: ': 'SID:',
+    'Account: ': 'Acct:',
+    'Thinking: ': 'Th:',
+    'Style: ': 'St:',
+    'Term: ': 'Tw:',
+    'Compactions: ': 'Cmp:'
 };
 
 const COMPACT_LABEL_METADATA_KEY = 'compactLabel';
