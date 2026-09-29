@@ -19,7 +19,8 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "dist/"
+    "dist/",
+    "client/"
   ],
   "scripts": {
     "start": "bun run src/ccstatusline.ts",
