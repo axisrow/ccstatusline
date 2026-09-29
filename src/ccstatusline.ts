@@ -159,6 +159,17 @@ async function main() {
         return;
     }
 
+    // Daemon host mode (#16): serve the shared renderer over a private Unix
+    // socket (HTTP v1) for the shell/curl IPC client. Checked before the TTY
+    // split like --serve: the daemon is started detached, without a TTY and
+    // without a piped payload. Imported lazily so the per-repaint render path
+    // never loads node:http.
+    if (process.argv.includes('daemon')) {
+        const { runDaemonServer } = await import('./daemon/server');
+        await runDaemonServer();
+        return;
+    }
+
     // Non-interactive CLI subcommands (#602): args present + TTY stdin means an
     // agent or human is configuring the tool, not rendering a status line.
     // Piped stdin (Claude Code) keeps the render path regardless of args.
