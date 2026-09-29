@@ -10,43 +10,65 @@ import {
     type ListEntry
 } from './List';
 
+export interface ConfirmDialogAdditionalAction {
+    label: string;
+    onSelect: () => void;
+}
+
 export interface ConfirmDialogProps {
     message?: string;
     onConfirm: () => void;
     onCancel: () => void;
     inline?: boolean;
+    /** Optional middle choice (e.g. "Keep existing") shown between Yes and No. */
+    additionalAction?: ConfirmDialogAdditionalAction;
 }
 
-const CONFIRM_OPTIONS: ListEntry<boolean>[] = [
-    {
-        label: 'Yes',
-        value: true
-    },
-    {
-        label: 'No',
-        value: false
-    }
-];
+type ConfirmOptionValue = boolean | 'additional';
 
-export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({ message, onConfirm, onCancel, inline = false }) => {
+export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({ message, onConfirm, onCancel, inline = false, additionalAction }) => {
     useInput((_, key) => {
         if (key.escape) {
             onCancel();
         }
     });
 
+    const options: ListEntry<ConfirmOptionValue>[] = [
+        {
+            label: 'Yes',
+            value: true
+        },
+        ...(additionalAction
+            ? [{
+                label: additionalAction.label,
+                value: 'additional' as const
+            }]
+            : []),
+        {
+            label: additionalAction ? 'Cancel' : 'No',
+            value: false
+        }
+    ];
+
+    const handleSelect = (value: ConfirmOptionValue | 'back') => {
+        if (value === true) {
+            onConfirm();
+            return;
+        }
+
+        if (value === 'additional') {
+            additionalAction?.onSelect();
+            return;
+        }
+
+        onCancel();
+    };
+
     if (inline) {
         return (
             <List
-                items={CONFIRM_OPTIONS}
-                onSelect={(confirmed) => {
-                    if (confirmed) {
-                        onConfirm();
-                        return;
-                    }
-
-                    onCancel();
-                }}
+                items={options}
+                onSelect={handleSelect}
                 color='cyan'
             />
         );
@@ -57,15 +79,8 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({ message, onConfirm
             <Text>{message}</Text>
             <Box marginTop={1}>
                 <List
-                    items={CONFIRM_OPTIONS}
-                    onSelect={(confirmed) => {
-                        if (confirmed) {
-                            onConfirm();
-                            return;
-                        }
-
-                        onCancel();
-                    }}
+                    items={options}
+                    onSelect={handleSelect}
                     color='cyan'
                 />
             </Box>
