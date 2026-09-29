@@ -24,8 +24,8 @@ const clientPath = fileURLToPath(new URL('../../../client/ccstatusline-ipc', imp
 
 const started: StartedTestDaemon[] = [];
 
-async function start(): Promise<StartedTestDaemon> {
-    const handle = await startTestDaemon();
+async function start(overrides: Parameters<typeof startTestDaemon>[0] = {}): Promise<StartedTestDaemon> {
+    const handle = await startTestDaemon(overrides);
     started.push(handle);
     return handle;
 }
@@ -120,6 +120,21 @@ describe('shell client end to end', () => {
 
         expect(result.status).toBe(0);
         expect(result.stdout).toContain('модель-✓-Ünïcode');
+    });
+
+    it('treats an empty successful render as success with no output', async () => {
+        const { daemon } = await start({
+            loadSettings: () => import('../../types/Settings').then(({ DEFAULT_SETTINGS }) => ({
+                settings: { ...DEFAULT_SETTINGS, lines: [] },
+                loadError: null
+            }))
+        });
+
+        const result = await runClient(daemon.runtimeDir, JSON.stringify({ model: { id: 'm' }, cwd: '/tmp' }));
+
+        expect(result.status).toBe(0);
+        expect(result.stdout).toBe('');
+        expect(result.stderr).toBe('');
     });
 
     it('fails with empty stdout when the daemon is not running', async () => {

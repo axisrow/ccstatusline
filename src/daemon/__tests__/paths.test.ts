@@ -15,7 +15,8 @@ import {
     getDiscoveryPath,
     getRuntimeDir,
     getSocketPath,
-    prepareSocketPath
+    prepareSocketPath,
+    sweepStaleSockets
 } from '../paths';
 
 // Socket hygiene is POSIX-only by design; the transport refuses to run on Windows.
@@ -138,8 +139,39 @@ describe('prepareSocketPath', () => {
         expect(() => { prepareSocketPath(longPath); }).toThrow('103 bytes');
     });
 
-    it('exposes discovery and socket paths inside the runtime dir', () => {
-        expect(getSocketPath(runtimeDir)).toBe(path.join(runtimeDir, 'daemon.sock'));
+    it('exposes discovery and pid-suffixed socket paths inside the runtime dir', () => {
+        expect(getSocketPath(runtimeDir)).toBe(path.join(runtimeDir, `daemon-${process.pid}.sock`));
+        expect(getSocketPath(runtimeDir, 4242)).toBe(path.join(runtimeDir, 'daemon-4242.sock'));
         expect(getDiscoveryPath(runtimeDir)).toBe(path.join(runtimeDir, 'daemon.env'));
+    });
+
+    it('sweeps sockets of dead daemon pids and keeps live ones', async () => {
+        // Find a pid that no longer exists (same ESRCH check the sweep uses).
+        let deadPid = 0;
+        for (let candidate = process.pid - 1; candidate > 1; candidate--) {
+            try {
+                process.kill(candidate, 0);
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
+                    deadPid = candidate;
+                    break;
+                }
+            }
+        }
+        expect(deadPid).toBeGreaterThan(1);
+
+        const deadPath = getSocketPath(runtimeDir, deadPid);
+        const livePath = getSocketPath(runtimeDir);
+        const deadServer = net.createServer();
+        const liveServer = net.createServer();
+        await new Promise<void>(resolve => deadServer.listen({ path: deadPath }, resolve));
+        await new Promise<void>(resolve => liveServer.listen({ path: livePath }, resolve));
+
+        sweepStaleSockets(runtimeDir);
+
+        expect(fs.existsSync(deadPath)).toBe(false);
+        expect(fs.existsSync(livePath)).toBe(true);
+
+        await new Promise<void>(resolve => liveServer.close(() => { resolve(); }));
     });
 });

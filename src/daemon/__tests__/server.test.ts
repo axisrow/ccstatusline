@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as net from 'node:net';
 import {
     afterEach,
     describe,
@@ -6,6 +7,7 @@ import {
     it
 } from 'vitest';
 
+import { getSocketPath } from '../paths';
 import type { InvocationContext } from '../protocol';
 import { encodeContext } from '../protocol';
 
@@ -266,5 +268,32 @@ describe('daemon server transport', () => {
         await stopTestDaemon(handle);
         expect(fs.existsSync(daemon.socketPath)).toBe(false);
         expect(fs.existsSync(daemon.discoveryPath)).toBe(false);
+    });
+
+    it('does not delete endpoints taken over by a second daemon', async () => {
+        const handle = await start();
+        const first = handle.daemon;
+
+        // Simulate a takeover: another daemon pid owns a different instance
+        // socket in the same runtime dir, and the discovery file now points
+        // at it with a fresh token. (Real takeovers run in another process —
+        // instance paths are pid-suffixed — so a second in-process server
+        // would fight the same bind path, not reproduce the takeover.)
+        const takeoverSocket = getSocketPath(handle.runtimeDir, 424242);
+        const takeoverServer = net.createServer();
+        await new Promise<void>(resolve => takeoverServer.listen({ path: takeoverSocket }, resolve));
+        fs.writeFileSync(handle.daemon.discoveryPath, [
+            'protocol=1',
+            `socket=${takeoverSocket}`,
+            `token=${'b'.repeat(64)}`
+        ].join('\n') + '\n', { mode: 0o600 });
+
+        // Stopping the superseded instance must leave the live one intact.
+        await first.stop();
+        expect(fs.existsSync(takeoverSocket)).toBe(true);
+        expect(fs.existsSync(handle.daemon.discoveryPath)).toBe(true);
+
+        takeoverServer.close();
+        fs.rmSync(takeoverSocket, { force: true });
     });
 });

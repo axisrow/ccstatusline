@@ -21,7 +21,8 @@ import {
     getDiscoveryPath,
     getRuntimeDir,
     getSocketPath,
-    prepareSocketPath
+    prepareSocketPath,
+    sweepStaleSockets
 } from './paths';
 import type { InvocationContext } from './protocol';
 import {
@@ -415,6 +416,7 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServerHa
         counters,
         async start(): Promise<void> {
             ensureRuntimeDir(runtimeDir);
+            sweepStaleSockets(runtimeDir);
             prepareSocketPath(socketPath);
             await new Promise<void>((resolve, reject) => {
                 const onError = (error: Error) => {
@@ -438,12 +440,31 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServerHa
                 server.closeIdleConnections();
                 server.close(() => { resolve(); });
             });
-            for (const stalePath of [socketPath, discoveryPath, `${discoveryPath}.${process.pid}.tmp`]) {
-                try {
-                    fs.unlinkSync(stalePath);
-                } catch {
-                    // Already gone.
+            // Remove the endpoints only if this instance still owns them:
+            // prepareSocketPath lets a same-user daemon take over the socket
+            // path, and the takeover rewrites the discovery file in the same
+            // breath. A superseded instance shutting down must not delete the
+            // live one's socket or discovery. (Inode comparison is not an
+            // option: the freed inode is routinely reused by the new socket.)
+            let owned = false;
+            try {
+                owned = fs.readFileSync(discoveryPath, 'utf8').includes(`token=${token}\n`);
+            } catch {
+                // Gone already; nothing to clean up either way.
+            }
+            if (owned) {
+                for (const stalePath of [socketPath, discoveryPath]) {
+                    try {
+                        fs.unlinkSync(stalePath);
+                    } catch {
+                        // Already gone.
+                    }
                 }
+            }
+            try {
+                fs.unlinkSync(`${discoveryPath}.${process.pid}.tmp`);
+            } catch {
+                // Already gone.
             }
         }
     };

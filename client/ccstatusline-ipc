@@ -99,4 +99,10 @@ header = "X-CCStatusLine-Context: $context"
 CONFIG
 ) || die "daemon request failed (curl exit $?)"
 
-[ -n "$body" ] && printf '%s\n' "$body"
+# An empty 200 body is a successful "nothing to render" answer — it matches
+# piped mode, which prints nothing. Report success with no output rather than
+# falling off the end with the failed [ -n test as the exit status.
+if [ -n "$body" ]; then
+    printf '%s\n' "$body"
+fi
+exit 0

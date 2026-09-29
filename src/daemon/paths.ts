@@ -10,8 +10,10 @@ import * as path from 'node:path';
 /** The socket path must fit sun_path on every supported platform (macOS: 104 incl. NUL). */
 export const MAX_SOCKET_PATH_BYTES = 103;
 
-export const SOCKET_FILE_NAME = 'daemon.sock';
 export const DISCOVERY_FILE_NAME = 'daemon.env';
+
+/** Instance socket files carry their pid: daemon-<pid>.sock. */
+const SOCKET_FILE_PATTERN = /^daemon-(\d+)\.sock$/;
 
 function currentUid(): number | null {
     return typeof process.getuid === 'function' ? process.getuid() : null;
@@ -35,8 +37,15 @@ export function getRuntimeDir(): string {
     return path.join(process.env.TMPDIR ?? '/tmp', `ccstatusline-${uid}`);
 }
 
-export function getSocketPath(runtimeDir: string): string {
-    return path.join(runtimeDir, SOCKET_FILE_NAME);
+/**
+ * Per-instance socket path. The pid suffix makes the path exclusive to one
+ * daemon process: http servers unlink their bind path on close, so two
+ * instances sharing a path would let a shutting-down instance delete the
+ * live one's socket. Clients never see the naming scheme — they read the
+ * current path from the discovery file.
+ */
+export function getSocketPath(runtimeDir: string, pid: number = process.pid): string {
+    return path.join(runtimeDir, `daemon-${pid}.sock`);
 }
 
 export function getDiscoveryPath(runtimeDir: string): string {
@@ -101,4 +110,53 @@ export function prepareSocketPath(socketPath: string): void {
         throw new Error(`refusing to remove socket at ${socketPath} owned by another user`);
     }
     fs.unlinkSync(socketPath);
+}
+
+/**
+ * Delete sockets left behind by daemon pids that no longer exist (killed -9
+ * never runs its cleanup). Only files matching the instance naming scheme,
+ * only sockets owned by this user; a live pid (ESRCH says dead, anything
+ * else says alive or not ours) keeps its socket. Call before binding.
+ */
+export function sweepStaleSockets(runtimeDir: string): void {
+    let entries: string[];
+    try {
+        entries = fs.readdirSync(runtimeDir);
+    } catch {
+        return;
+    }
+    const uid = currentUid();
+    for (const name of entries) {
+        const match = SOCKET_FILE_PATTERN.exec(name);
+        if (!match || match[1] === String(process.pid)) {
+            continue;
+        }
+        const stalePath = path.join(runtimeDir, name);
+        let stats: fs.Stats | undefined;
+        try {
+            stats = fs.lstatSync(stalePath);
+        } catch {
+            continue;
+        }
+        if (!stats.isSocket()) {
+            continue;
+        }
+        if (uid !== null && stats.uid !== uid) {
+            continue;
+        }
+        const stalePid = Number(match[1]);
+        try {
+            process.kill(stalePid, 0);
+            continue; // Alive: not ours to remove.
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+                continue; // Alive but not ours, or inconclusive: keep.
+            }
+        }
+        try {
+            fs.unlinkSync(stalePath);
+        } catch {
+            // Already gone.
+        }
+    }
 }
