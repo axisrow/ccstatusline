@@ -47,6 +47,17 @@ export interface InstallStatusLineOptions {
     commandMode: StatusLineCommandMode;
     supportsRefreshInterval?: boolean;
     installationMetadata?: InstallationMetadata;
+    /**
+     * Keep an existing statusLine in place instead of overwriting it (upstream #565).
+     * When set and a statusLine already exists, nothing is written; a fresh install
+     * (no existing statusLine) proceeds normally.
+     */
+    keepExisting?: boolean;
+}
+
+export interface InstallStatusLineResult {
+    /** False when an existing statusLine was kept and no settings were written. */
+    statusLineWritten: boolean;
 }
 
 export interface PackageCommandAvailability {
@@ -401,17 +412,29 @@ async function loadSavedSettingsForHookSync(): Promise<Settings | null> {
 export async function installStatusLine({
     commandMode,
     supportsRefreshInterval = false,
-    installationMetadata
-}: InstallStatusLineOptions): Promise<void> {
+    installationMetadata,
+    keepExisting = false
+}: InstallStatusLineOptions): Promise<InstallStatusLineResult> {
     let settings: ClaudeSettings;
+    let loadFailed = false;
 
-    const backupPath = await backupClaudeSettings('.orig');
     try {
         settings = await loadClaudeSettings({ logErrors: false });
     } catch {
+        loadFailed = true;
+        settings = {};
+    }
+
+    // Upstream #565: an explicit "keep existing" must never overwrite. An unreadable
+    // file also counts as "existing" — we can't verify what's there, so don't destroy it.
+    if (keepExisting && (loadFailed || settings.statusLine)) {
+        return { statusLineWritten: false };
+    }
+
+    const backupPath = await backupClaudeSettings('.orig');
+    if (loadFailed) {
         const fallbackBackupPath = `${getClaudeSettingsPath()}.orig`;
         console.error(`Warning: Could not read existing Claude settings. A backup exists at ${backupPath ?? fallbackBackupPath}.`);
-        settings = {};
     }
 
     // Update settings with our status line (confirmation already handled in TUI)
@@ -437,6 +460,8 @@ export async function installStatusLine({
         const { syncWidgetHooks } = await import('./hooks');
         await syncWidgetHooks(savedSettings);
     }
+
+    return { statusLineWritten: true };
 }
 
 export async function uninstallStatusLine(): Promise<void> {

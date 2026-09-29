@@ -68,6 +68,8 @@ export interface DaemonDependencies {
 export interface DaemonServerOptions {
     dependencies: DaemonDependencies;
     maxInFlightRenders?: number;
+    /** Test seam (#17): reported build identity in health and the discovery file. */
+    versionOverride?: string;
 }
 
 export interface DaemonCounters {
@@ -153,6 +155,7 @@ function sweepProviderCaches(): void {
 export function createDaemonServer(options: DaemonServerOptions): DaemonServerHandle {
     const { dependencies } = options;
     const maxInFlight = options.maxInFlightRenders ?? MAX_IN_FLIGHT_RENDERS;
+    const reportedVersion = options.versionOverride ?? getPackageVersion();
 
     const runtimeDir = getRuntimeDir();
     const socketPath = getSocketPath(runtimeDir);
@@ -322,7 +325,7 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServerHa
             bump('ok');
             sendJson(response, 200, {
                 protocol: PROTOCOL_VERSION,
-                version: getPackageVersion(),
+                version: reportedVersion,
                 pid: process.pid,
                 runtime: process.version,
                 startedAt: startedAt.toISOString(),
@@ -472,7 +475,7 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServerHa
         const lines = [
             '# ccstatusline daemon discovery v1 — one KEY=VALUE per line, safe to parse with a POSIX shell',
             `protocol=${PROTOCOL_VERSION}`,
-            `version=${getPackageVersion()}`,
+            `version=${reportedVersion}`,
             `pid=${process.pid}`,
             `socket=${socketPath}`,
             `token=${token}`,

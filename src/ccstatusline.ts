@@ -159,14 +159,15 @@ async function main() {
         return;
     }
 
-    // Daemon host mode (#16): serve the shared renderer over a private Unix
-    // socket (HTTP v1) for the shell/curl IPC client. Checked before the TTY
-    // split like --serve: the daemon is started detached, without a TTY and
-    // without a piped payload. Imported lazily so the per-repaint render path
-    // never loads node:http.
+    // Daemon modes (#16 transport, #17 lifecycle): the foreground server host
+    // runs on a bare `daemon`; `daemon start|stop|status|restart` coordinate
+    // the shared background renderer. Checked before the TTY split like
+    // --serve: the daemon is started detached, without a TTY and without a
+    // piped payload. Imported lazily so the per-repaint render path never
+    // loads node:http.
     if (process.argv.includes('daemon')) {
-        const { runDaemonServer } = await import('./daemon/server');
-        await runDaemonServer();
+        const { runDaemonCommand } = await import('./daemon/lifecycle');
+        await runDaemonCommand();
         return;
     }
 
