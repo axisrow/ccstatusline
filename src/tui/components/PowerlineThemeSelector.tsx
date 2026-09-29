@@ -46,11 +46,11 @@ export function buildPowerlineThemeItems(
 // arrays JSON-serialize undefined entries as null, which the settings schema
 // rejects on reload.
 function withLineTheme(
-    lineThemes: (string | undefined)[] | undefined,
+    lineThemes: (string | null | undefined)[] | undefined,
     lineIndex: number,
     theme: string | undefined
 ): (string | undefined)[] {
-    const next = Array.from({ length: Math.max(lineIndex + 1, lineThemes?.length ?? 0) }, (_, i) => lineThemes?.[i]);
+    const next = Array.from({ length: Math.max(lineIndex + 1, lineThemes?.length ?? 0) }, (_, i) => lineThemes?.[i] ?? undefined);
     next[lineIndex] = theme;
     return next;
 }

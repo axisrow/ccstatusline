@@ -37,5 +37,6 @@ export function advanceGlobalPowerlineThemeIndex(currentIndex: number, entries: 
 // True when line `lineIndex` carries its own theme ('none' counts: it is an
 // explicit per-line setting, not an inherit-from-global fallback).
 export function hasOwnLineTheme(settings: Pick<Settings, 'lineThemes'>, lineIndex: number): boolean {
-    return settings.lineThemes?.[lineIndex] !== undefined;
+    const theme = settings.lineThemes?.[lineIndex];
+    return theme !== undefined && theme !== null;
 }

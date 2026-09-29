@@ -240,10 +240,10 @@ export async function loadSettingsFrom(configPath: string): Promise<LoadedSettin
 // and materialize missing ones as undefined (inherit). An array with no real
 // themes collapses to undefined. Reads are out-of-range-safe anyway
 // (lineThemes?.[i] → undefined), so this is purely config hygiene.
-export function normalizeLineThemes(lineThemes: (string | undefined)[] | undefined, lineCount: number): (string | undefined)[] | undefined {
+export function normalizeLineThemes(lineThemes: (string | null | undefined)[] | undefined, lineCount: number): (string | undefined)[] | undefined {
     if (!lineThemes)
         return undefined;
-    const normalized = Array.from({ length: lineCount }, (_, i) => lineThemes[i]);
+    const normalized = Array.from({ length: lineCount }, (_, i) => lineThemes[i] ?? undefined);
     return normalized.some(theme => theme !== undefined) ? normalized : undefined;
 }
 

@@ -81,5 +81,7 @@ describe('powerline theme index utils', () => {
         expect(hasOwnLineTheme(settings, 5)).toBe(false); // past the end
         expect(hasOwnLineTheme({ lineThemes: undefined }, 0)).toBe(false);
         expect(hasOwnLineTheme({}, 0)).toBe(false);
+        expect(hasOwnLineTheme({ lineThemes: [null, 'nord'] }, 0)).toBe(false); // JSON round-trip hole
+        expect(hasOwnLineTheme({ lineThemes: [null, 'nord'] }, 1)).toBe(true);
     });
 });
