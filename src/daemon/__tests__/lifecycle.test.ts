@@ -215,32 +215,46 @@ describe('daemon lifecycle: stale state recovery', () => {
         expect(discovery).not.toContain(`pid=${deadPid}`);
     });
 
-    it('keeps health probes bounded against a bound-but-silent socket', { timeout: 10_000 }, async () => {
+    it('keeps health probes bounded against a bound-but-silent socket', async () => {
         // A listener with no HTTP server behind it accepts connections and
         // never answers: bun's ClientRequest timeout does not fire on Linux,
         // so the external per-probe timer is what keeps ensureDaemon bounded.
         const silentSocket = path.join(runtimeDir, 'daemon-silent.sock');
         const silentServer = net.createServer();
         await new Promise<void>(resolve => silentServer.listen({ path: silentSocket }, resolve));
-        socketsToClose.push(silentServer);
-        writeDiscovery({
-            protocol: '1',
-            version: '0.0.0-silent',
-            pid: String(findDeadPid()),
-            socket: silentSocket,
-            token: 'd'.repeat(64)
-        });
+        // Closing a server with connections accepted-and-ignored has proven
+        // flaky across bun runtimes, so this server is never joined on: it is
+        // unreferenced (holds nothing open) and force-cleaned with its socket
+        // file at the end of the test.
+        silentServer.unref();
+        try {
+            writeDiscovery({
+                protocol: '1',
+                version: '0.0.0-silent',
+                pid: String(findDeadPid()),
+                socket: silentSocket,
+                token: 'd'.repeat(64)
+            });
 
-        const times = recorder();
-        const outcome = await ensureDaemon({
-            runtimeDir,
-            spawnDaemon: spawnInProcessServer(times, 20),
-            timings: { healthMs: 150, pollMs: 25 }
-        });
+            const times = recorder();
+            const outcome = await ensureDaemon({
+                runtimeDir,
+                spawnDaemon: spawnInProcessServer(times, 20),
+                timings: { healthMs: 150, pollMs: 25 }
+            });
 
-        expect(outcome.state).toBe('started');
-        expect(times.signals).toHaveLength(0);
-    });
+            expect(outcome.state).toBe('started');
+            expect(times.signals).toHaveLength(0);
+        } finally {
+            try {
+                (silentServer as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
+            } catch {
+                // Older runtimes: the unref already keeps the loop free.
+            }
+            silentServer.close();
+            fs.rmSync(silentSocket, { force: true });
+        }
+    }, 15000);
 
     it('never signals a live pid that does not answer as a daemon (pid reuse)', async () => {
         const times = recorder();
