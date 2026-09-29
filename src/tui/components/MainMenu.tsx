@@ -109,7 +109,7 @@ export function buildMainMenuItems(
                 'Apply a built-in color theme to regular (non-powerline) mode as foreground colors'
         }]),
         {
-            label: '🎛️ Line Themes',
+            label: '🧶 Line Themes',
             value: 'lineThemes',
             description:
                 'Pick a different theme per status line; lines without their own use the global theme'
