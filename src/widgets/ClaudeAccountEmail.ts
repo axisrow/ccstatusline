@@ -28,7 +28,7 @@ export class ClaudeAccountEmailWidget implements Widget {
         }
 
         try {
-            const content = fs.readFileSync(getClaudeJsonPath(), 'utf-8');
+            const content = fs.readFileSync(getClaudeJsonPath(context.env), 'utf-8');
             const data = JSON.parse(content) as ClaudeJson;
             const email = data.oauthAccount?.emailAddress;
 

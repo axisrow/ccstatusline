@@ -104,6 +104,27 @@ describe('RefreshGroup', () => {
         second.release();
     });
 
+    it('keeps the replacement job registered when the cancelled job settles late', async () => {
+        const group = new RefreshGroup();
+        const resolvers: ((value: string) => void)[] = [];
+        const work = vi.fn((): Promise<string> => new Promise((resolve) => { resolvers.push(resolve); }));
+
+        const first = group.refresh('review', work);
+        first.release(); // Aborts job 1 while pending.
+        group.refresh('review', work); // Replaces it in the group.
+
+        // Job 1 settles only after its replacement registered (#18 review):
+        // its cleanup must not unregister job 2.
+        resolvers[0]?.('late-first');
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        const third = group.refresh('review', work);
+        expect(work).toHaveBeenCalledTimes(2);
+        resolvers[1]?.('fresh');
+        await expect(third.promise).resolves.toBe('fresh');
+        third.release();
+    });
+
     it('ignores a release after completion', async () => {
         const group = new RefreshGroup();
         const work = vi.fn((): Promise<string> => Promise.resolve('done'));

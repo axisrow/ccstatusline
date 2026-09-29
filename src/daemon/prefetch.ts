@@ -255,7 +255,7 @@ async function prefetchGitReview(
     await trackRefresh(
         scope,
         `git-review:${gitCwd}\0${includeChecks ? 'checks' : 'metadata'}`,
-        signal => fetchGitReviewDataAsync(gitCwd, { includeChecks }, signal)
+        signal => fetchGitReviewDataAsync(gitCwd, { includeChecks, env: scope.env }, signal)
     ).catch(() => undefined);
 }
 
@@ -291,10 +291,16 @@ async function prefetchUsage(
 
     // Account scope before anything else (#18): credentials resolved once per
     // render (deduped), and the memory cache picked by credential fingerprint
-    // so no fast return can cross accounts.
+    // so no fast return can cross accounts. The dedup key carries the env
+    // inputs of credential resolution (absent-vs-empty preserved) so two
+    // profiles cannot join one resolution (#18 review).
+    const credentialsKey = `usage-credentials:${JSON.stringify([
+        scope.env.CLAUDE_CONFIG_DIR,
+        scope.env.CLAUDE_SECURESTORAGE_CONFIG_DIR
+    ])}`;
     const credentials = await trackRefresh(
         scope,
-        'usage-credentials',
+        credentialsKey,
         signal => getUsageCredentialsAsync(scope.env, signal)
     );
     const scopeKey = credentials ? getUsageScopeKey(credentials) : 'none';

@@ -903,8 +903,8 @@ async function getUsageApiRequestOptions(token: string, env: NodeJS.ProcessEnv):
     }
 }
 
-async function fetchFromUsageApi(token: string, signal?: AbortSignal): Promise<UsageApiFetchResult> {
-    const requestOptions = await getUsageApiRequestOptions(token, process.env);
+async function fetchFromUsageApi(token: string, signal?: AbortSignal, env: NodeJS.ProcessEnv = process.env): Promise<UsageApiFetchResult> {
+    const requestOptions = await getUsageApiRequestOptions(token, env);
     if (!requestOptions) {
         return { kind: 'error' };
     }
@@ -1039,7 +1039,7 @@ export async function fetchUsageData(options: FetchUsageDataOptions): Promise<Us
 
     // Fetch from API using Node's https module
     try {
-        const response = await fetchFromUsageApi(token, options.signal);
+        const response = await fetchFromUsageApi(token, options.signal, options.env);
 
         if (response.kind === 'rate-limited') {
             writeUsageLock(now + response.retryAfterSeconds, 'rate-limited');
