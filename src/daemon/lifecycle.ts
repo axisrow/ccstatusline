@@ -201,7 +201,13 @@ function healthRequest(discovery: DaemonDiscovery, timeoutMs: number): Promise<D
             socketPath: discovery.socket,
             method: 'GET',
             path: '/v1/health',
-            headers: { authorization: `Bearer ${discovery.token}` }
+            headers: {
+                authorization: `Bearer ${discovery.token}`,
+                // One-shot probe: without this the agent pools the keep-alive
+                // connection, and a later probe would be served over the old
+                // socket without ever touching the (possibly replaced) path.
+                connection: 'close'
+            }
         }, (response) => {
             const chunks: Buffer[] = [];
             response.on('data', (chunk: Buffer) => { chunks.push(chunk); });
