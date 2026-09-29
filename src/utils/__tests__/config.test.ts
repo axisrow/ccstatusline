@@ -37,7 +37,7 @@ let initConfigPath: (filePath?: string) => void;
 let getConfigLoadError: () => string | null;
 let saveInstallationMetadata: (metadata: InstallationMetadata | undefined) => Promise<void>;
 let normalizeLineThemes: (
-    lineThemes: (string | undefined)[] | undefined,
+    lineThemes: (string | null | undefined)[] | undefined,
     lineCount: number
 ) => (string | undefined)[] | undefined;
 let consoleErrorSpy: MockInstance<typeof console.error>;
@@ -529,5 +529,6 @@ describe('config utilities', () => {
         expect(normalizeLineThemes(['nord'], 3)).toEqual(['nord', undefined, undefined]);
         expect(normalizeLineThemes(['nord', 'dracula', undefined, 'stale'], 2)).toEqual(['nord', 'dracula']);
         expect(normalizeLineThemes([undefined, undefined], 2)).toBeUndefined();
+        expect(normalizeLineThemes([null, 'dracula', null], 3)).toEqual([undefined, 'dracula', undefined]);
     });
 });

@@ -82,8 +82,11 @@ export const SettingsSchema = z.object({
     // an undefined entry (or a short/absent array) inherits the global theme
     // (settings.theme in regular mode, powerline.theme in powerline mode),
     // 'none' disables theming for that line. Additive optional key, no
-    // version bump needed (same precedent as `theme`).
-    lineThemes: z.array(z.string().optional()).optional(),
+    // version bump needed (same precedent as `theme`). null entries are
+    // accepted and treated as inherit: undefined holes in an in-memory array
+    // serialize to null through JSON.stringify, so a TUI-written config must
+    // reload cleanly (normalizeLineThemes maps null back to undefined).
+    lineThemes: z.array(z.string().nullish()).optional(),
     globalBold: z.boolean().default(false),
     // Compact label presets (Model: -> M:, Context: -> Ctx:, Cost: -> $) for
     // labeled widgets. Additive v4 key with an off default, so configs written

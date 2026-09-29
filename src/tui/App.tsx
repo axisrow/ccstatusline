@@ -471,12 +471,12 @@ export function buildInvalidConfigSaveConfirm(
 export function syncLineThemesWithLines(
     oldLines: WidgetItem[][],
     newLines: WidgetItem[][],
-    lineThemes: (string | undefined)[] | undefined
+    lineThemes: (string | null | undefined)[] | undefined
 ): (string | undefined)[] {
     const themes = lineThemes ?? [];
     return newLines.map((line) => {
         const oldIndex = oldLines.indexOf(line);
-        return oldIndex >= 0 ? themes[oldIndex] : undefined;
+        return oldIndex >= 0 ? themes[oldIndex] ?? undefined : undefined;
     });
 }
 

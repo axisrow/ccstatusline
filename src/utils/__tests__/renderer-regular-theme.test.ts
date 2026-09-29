@@ -180,6 +180,17 @@ describe('renderer regular-mode theme', () => {
             expect(SettingsSchema.parse({ lineThemes: ['nord', undefined, 'dracula'] }).lineThemes).toEqual(['nord', undefined, 'dracula']);
             expect(SettingsSchema.parse({}).lineThemes).toBeUndefined();
         });
+
+        it('accepts null entries: undefined holes serialize to null in JSON', () => {
+            // Exact round-trip of a TUI-written config: withLineTheme pads
+            // with undefined, JSON.stringify turns holes into null. The
+            // schema tolerates null (inherit); normalizeLineThemes maps it
+            // back to undefined on load.
+            const onDisk = JSON.parse(JSON.stringify({ lineThemes: ['tokyonight', undefined, 'nord-aurora'] })) as { lineThemes: (string | null)[] };
+
+            expect(onDisk.lineThemes).toEqual(['tokyonight', null, 'nord-aurora']);
+            expect(SettingsSchema.parse(onDisk).lineThemes).toEqual(['tokyonight', null, 'nord-aurora']);
+        });
     });
 
     // Every shipped theme must behave identically in regular mode: same slot
