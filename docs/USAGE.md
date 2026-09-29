@@ -453,3 +453,40 @@ The widget renders nothing when the current session isn't found, so manual separ
 
 When terminal width is detected, status lines automatically truncate with ellipsis (`...`) if they exceed the available width, preventing line wrapping.
 Truncation is ANSI/OSC-aware, so preserved color output and OSC 8 hyperlinks remain well-formed.
+
+## Daemon (Shared Render Mode)
+
+macOS/Linux only. An optional background daemon renders status lines for all
+Claude Code sessions through one shared process, reached over a private
+per-user Unix socket (bearer-token auth, 0700 runtime directory). The daemon
+is strictly **opt-in**: nothing on the normal render path ever starts one.
+
+```bash
+ccstatusline daemon install     # switch the Claude Code statusLine to the
+                                # shared-mode client and start the daemon
+ccstatusline daemon status      # identity, uptime, render counters
+ccstatusline daemon restart     # after upgrading ccstatusline
+ccstatusline daemon uninstall   # restore the previous one-shot command
+ccstatusline daemon stop        # stop the daemon (status line goes quiet)
+```
+
+- `install` remembers the exact previous `statusLine` entry (in
+  ccstatusline's own settings) so `uninstall` restores it verbatim; if there
+  was no status line before, `uninstall` removes ours again. The wrapper
+  command is `sh <install>/client/ccstatusline-ipc`, POSIX `sh` + `curl`
+  only — no Node on the repaint path.
+- If the daemon is down, the client fails with empty stdout and exit 1: the
+  status line goes quiet, nothing else breaks, and **no daemon is
+  auto-started**. Start it explicitly with `daemon start` (or `install`).
+- `daemon status` prints what `/v1/health` exposes — protocol and build
+  identity, pid, uptime, last render time, in-flight renders and aggregate
+  request counters. It never prints the auth token. Exit code is 1 unless a
+  compatible daemon answers, so scripts can gate on it.
+- After upgrading ccstatusline, a running daemon reports as `incompatible`;
+  `daemon restart` (or any `daemon start`/`install`) performs a verified
+  upgrade restart.
+- With a custom `--config`, start the daemon with the same `--config`; the
+  client wrapper itself takes no arguments.
+- **Windows keeps the one-shot status line** — the Unix-socket transport does
+  not exist there, and every `daemon` subcommand refuses with an explicit
+  message (see [WINDOWS.md](WINDOWS.md)).

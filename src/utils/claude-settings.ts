@@ -249,7 +249,10 @@ export async function isInstalled(): Promise<boolean> {
 function isExecutableAvailable(executable: string): boolean {
     try {
         const command = process.platform === 'win32' ? `where ${executable}` : `which ${executable}`;
-        execSync(command, { stdio: 'ignore', windowsHide: true });
+        // Explicit env: bun's execSync ignores runtime process.env mutations
+        // otherwise (it spawns with the startup snapshot), which broke tests
+        // and any caller that adjusts PATH dynamically.
+        execSync(command, { stdio: 'ignore', windowsHide: true, env: { ...process.env } });
         return true;
     } catch {
         return false;
