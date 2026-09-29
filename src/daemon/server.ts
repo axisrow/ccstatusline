@@ -10,10 +10,13 @@ import {
     getConfigPath,
     loadSettingsFrom
 } from '../utils/config';
+import { clearCustomCommandCache } from '../utils/custom-command';
+import { clearGitCache } from '../utils/git';
+import { clearJjCommandLog } from '../utils/jj';
+import { clearTranscriptAnalysisCache } from '../utils/jsonl-metrics';
 import {
     getPackageVersion,
-    getTerminalWidth,
-    resetTerminalWidthCache
+    getTerminalWidth
 } from '../utils/terminal';
 
 import {
@@ -24,6 +27,11 @@ import {
     prepareSocketPath,
     sweepStaleSockets
 } from './paths';
+import type { PrefetchState } from './prefetch';
+import {
+    createPrefetchState,
+    prefetchRenderData
+} from './prefetch';
 import type { InvocationContext } from './protocol';
 import {
     AUTH_SCHEME,
@@ -43,15 +51,18 @@ import {
 // through the 0600 discovery file in the 0700 runtime directory, so another
 // user can neither connect to the socket nor read the token.
 //
-// Renders are strictly serialized inside the process: the render path still
-// reads process.env/process.cwd in a few places (claude-settings, terminal
-// width, custom-command caches), so each request applies its invocation
-// context there, one at a time, and restores it afterwards.
+// Renders run concurrently (#18): the render path resolves everything through
+// the per-request invocation snapshot (env/cwd) and prefetched provider data,
+// so no process-global state is swapped. Requests with the exact same display
+// context (config path + env + cwd + width + payload) join one in-flight
+// render instead of repeating the work, and each client connection holds a
+// consumer slot — the last one leaving cancels the provider work that only it
+// still needed.
 
 export interface DaemonDependencies {
     loadSettings: (configPath: string) => Promise<LoadedSettings>;
-    resolveTerminalWidth: (sessionId: string | undefined, ttlSeconds: number) => number | null;
-    buildInvocation: (context: InvocationContext, terminalWidth: number | null) => RenderInvocation;
+    resolveTerminalWidth: (sessionId: string | undefined, ttlSeconds: number, env: NodeJS.ProcessEnv) => number | null;
+    buildInvocation: (context: InvocationContext, terminalWidth: number | null, env: NodeJS.ProcessEnv) => RenderInvocation;
 }
 
 export interface DaemonServerOptions {
@@ -81,64 +92,62 @@ class BodyTooLargeError extends Error {
     }
 }
 
-/** Production dependencies: same request-scoped wiring as the --serve loop. */
+/**
+ * Apply the allowlisted request env on top of the daemon's own environment:
+ * names present in the snapshot are set, names absent from it are cleared —
+ * that is what preserves absent-vs-empty across the IPC boundary. Everything
+ * outside the allowlist stays the daemon's, so spawned providers always have
+ * PATH/HOME. Pure: returns a fresh object, never touches process.env (#18).
+ */
+export function mergeRequestEnvironment(context: InvocationContext): NodeJS.ProcessEnv {
+    const merged: NodeJS.ProcessEnv = { ...process.env };
+    for (const name of ENV_ALLOWLIST) {
+        const value = context.env[name];
+        if (value === undefined) {
+            Reflect.deleteProperty(merged, name);
+        } else {
+            merged[name] = value;
+        }
+    }
+    return merged;
+}
+
+/** Production dependencies: request-scoped wiring for the --serve loop. */
 export function createProcessDaemonDependencies(): DaemonDependencies {
     return {
         loadSettings: configPath => loadSettingsFrom(configPath),
-        resolveTerminalWidth: (sessionId, ttlSeconds) => {
-            // Same rationale as serve.ts: the width memo is process-global,
-            // so reset before each probe or a resize would serve stale widths.
-            resetTerminalWidthCache();
-            return getTerminalWidth({ sessionId, ttlSeconds });
+        resolveTerminalWidth: (sessionId, ttlSeconds, env) => {
+            // The env snapshot carries CCSTATUSLINE_WIDTH/COLUMNS per request;
+            // without an explicit width the shared memoized probe answers
+            // (the daemon's own ancestry is stable for the process lifetime).
+            return getTerminalWidth({ sessionId, ttlSeconds, env });
         },
-        buildInvocation: (context, terminalWidth) => ({
+        buildInvocation: (context, terminalWidth, env) => ({
             configPath: getConfigPath(),
             cwd: context.cwd ?? process.cwd(),
-            // The context is applied to process.env for the duration of the
-            // render, so this snapshot is exactly what render-path reads see.
-            env: { ...process.env },
+            env,
             terminalWidth
         })
     };
 }
 
-/**
- * Unset an environment variable. `delete process.env[name]` is the only
- * correct unset (assigning undefined would stringify); the Reflect form is
- * the same operation, kept here so the dynamic-delete lint rule holds.
- */
-function unsetEnv(name: string): void {
-    Reflect.deleteProperty(process.env, name);
+interface RenderJob {
+    controller: AbortController;
+    consumers: number;
+    promise: Promise<string>;
 }
 
-/**
- * Swap the allowlisted env slice for the request snapshot: names present in
- * the snapshot are set, names absent from it are cleared — that is what
- * preserves absent-vs-empty across the IPC boundary. Only ever called inside
- * the serialized render section.
- */
-function applyContextEnvironment(env: InvocationContext['env']): { name: string; value: string | undefined }[] {
-    const saved: { name: string; value: string | undefined }[] = [];
-    for (const name of ENV_ALLOWLIST) {
-        saved.push({ name, value: process.env[name] });
-        const next = env[name];
-        if (next === undefined) {
-            unsetEnv(name);
-        } else {
-            process.env[name] = next;
-        }
-    }
-    return saved;
-}
+// How long the daemon must see no requests before provider caches are
+// reclaimed (#18). Bounded caches cap steady-state growth; the idle sweep
+// gives the memory back after quiet periods.
+const IDLE_SWEEP_INTERVAL_MS = 60_000;
+const IDLE_SWEEP_AFTER_MS = 5 * 60_000;
 
-function restoreEnvironment(saved: { name: string; value: string | undefined }[]): void {
-    for (const { name, value } of saved) {
-        if (value === undefined) {
-            unsetEnv(name);
-        } else {
-            process.env[name] = value;
-        }
-    }
+function sweepProviderCaches(): void {
+    clearGitCache();
+    clearJjCommandLog();
+    clearCustomCommandCache();
+    clearTranscriptAnalysisCache();
 }
 
 export function createDaemonServer(options: DaemonServerOptions): DaemonServerHandle {
@@ -153,57 +162,85 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServerHa
 
     const counters: DaemonCounters = { requests: 0, ok: 0 };
     let lastRenderMs: number | null = null;
+    let lastActivityAt = Date.now();
 
-    // Strict serialization: one render runs at a time; inFlight counts
-    // renders that are running or queued, and overflow answers 503.
-    let inFlight = 0;
-    let renderTail: Promise<unknown> = Promise.resolve();
-    let savedCwd = process.cwd();
+    const prefetchState: PrefetchState = createPrefetchState();
+    const renderJobs = new Map<string, RenderJob>();
 
-    function serializeRender<T>(render: () => Promise<T>): Promise<T> {
-        const run = renderTail.then(render, render);
-        // Keep the tail resolved regardless of outcome; `run` itself still
-        // propagates errors to the requesting handler.
-        renderTail = run.catch(() => undefined);
-        return run;
+    const idleSweeper = setInterval(() => {
+        if (Date.now() - lastActivityAt > IDLE_SWEEP_AFTER_MS && renderJobs.size === 0) {
+            sweepProviderCaches();
+            for (const cache of prefetchState.usageCaches.values()) {
+                cache.data = null;
+                cache.identity = undefined;
+            }
+        }
+    }, IDLE_SWEEP_INTERVAL_MS);
+    idleSweeper.unref();
+
+    /** Join an in-flight render for `key`, or start one. */
+    function scheduleRender(key: string, run: (signal: AbortSignal) => Promise<string>): { promise: Promise<string>; release: () => void } {
+        const existing = renderJobs.get(key);
+        if (existing && !existing.controller.signal.aborted) {
+            existing.consumers++;
+            counters.deduped = (counters.deduped ?? 0) + 1;
+            return {
+                promise: existing.promise,
+                release: () => { releaseRender(key, existing); }
+            };
+        }
+
+        const controller = new AbortController();
+        const basePromise = run(controller.signal);
+        const job: RenderJob = {
+            controller,
+            consumers: 1,
+            promise: basePromise.finally(() => {
+                if (renderJobs.get(key) === job) {
+                    renderJobs.delete(key);
+                }
+            })
+        };
+        renderJobs.set(key, job);
+        return {
+            promise: job.promise,
+            release: () => { releaseRender(key, job); }
+        };
     }
 
-    function renderOne(data: StatusJSON, context: InvocationContext): Promise<string> {
-        return serializeRender(async () => {
-            const savedEnv = applyContextEnvironment(context.env);
-            let chdirApplied = false;
-            if (context.cwd !== null) {
-                try {
-                    process.chdir(context.cwd);
-                    chdirApplied = true;
-                } catch {
-                    // cwd vanished between validation and render: proceed in
-                    // the daemon cwd rather than failing the repaint.
-                }
-            }
-            try {
-                const loaded = await dependencies.loadSettings(getConfigPath());
-                const terminalWidth = dependencies.resolveTerminalWidth(
-                    data.session_id,
-                    loaded.settings.terminalWidthCacheTtlSeconds
-                );
-                const invocation = dependencies.buildInvocation(context, terminalWidth);
-                const { text } = await renderStatusLines(data, loaded, invocation);
-                return text;
-            } finally {
-                restoreEnvironment(savedEnv);
-                if (chdirApplied) {
-                    try {
-                        process.chdir(savedCwd);
-                    } catch {
-                        // The daemon's own cwd was removed; fall back to the
-                        // runtime directory, which this process created.
-                        process.chdir(runtimeDir);
-                        savedCwd = runtimeDir;
-                    }
-                }
-            }
+    function releaseRender(key: string, job: RenderJob): void {
+        if (job.consumers > 0) {
+            job.consumers--;
+        }
+        // Zero consumers before completion: nobody will read the result, so
+        // the provider work backing this render is cancelled. The job stays
+        // registered until its promise settles (it still occupies an
+        // in-flight slot while finishing).
+        if (job.consumers === 0 && renderJobs.get(key) === job) {
+            job.controller.abort();
+        }
+    }
+
+    async function renderOne(data: StatusJSON, context: InvocationContext, signal: AbortSignal): Promise<string> {
+        const env = mergeRequestEnvironment(context);
+        const loaded = await dependencies.loadSettings(getConfigPath());
+        const terminalWidth = dependencies.resolveTerminalWidth(
+            data.session_id,
+            loaded.settings.terminalWidthCacheTtlSeconds,
+            env
+        );
+        const invocation = dependencies.buildInvocation(context, terminalWidth, env);
+
+        const prefetch = await prefetchRenderData(data, loaded.settings, {
+            env,
+            cwd: invocation.cwd,
+            terminalWidth,
+            signal,
+            state: prefetchState
         });
+
+        const { text } = await renderStatusLines(data, loaded, invocation, prefetch);
+        return text;
     }
 
     const server = http.createServer((request, response) => {
@@ -269,6 +306,7 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServerHa
 
     async function handleRequest(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
         counters.requests++;
+        lastActivityAt = Date.now();
 
         if (!isAuthorized(request)) {
             fail(response, 401, 'unauthorized');
@@ -290,6 +328,7 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServerHa
                 startedAt: startedAt.toISOString(),
                 uptimeSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
                 lastRenderMs,
+                activeRenders: renderJobs.size,
                 counters
             });
             return;
@@ -364,7 +403,7 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServerHa
             Object.assign(context, decoded.context);
         }
         if (context.cwd !== null) {
-            // Boundary validation before any work: the render chdirs here.
+            // Boundary validation before any work: the render reads it.
             try {
                 if (!fs.statSync(context.cwd).isDirectory()) {
                     throw new Error('not a directory');
@@ -375,22 +414,58 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServerHa
             }
         }
 
-        if (inFlight >= maxInFlight) {
+        if (renderJobs.size >= maxInFlight) {
             fail(response, 503, 'busy', 'render queue is full');
             return;
         }
-        inFlight++;
+
+        // Exact display context (#18): identical (config, env, cwd, width,
+        // payload) requests join the in-flight render and receive its text.
+        const env = mergeRequestEnvironment(context);
+        const terminalWidth = getTerminalWidth({ env });
+        const renderKey = JSON.stringify([
+            getConfigPath(),
+            Object.entries(env).filter(([name]) => (ENV_ALLOWLIST as readonly string[]).includes(name)),
+            context.cwd,
+            terminalWidth,
+            JSON.stringify(statusResult.data)
+        ]);
+
+        let release: (() => void) | undefined;
+        let settled = false;
+        const onClientGone = () => {
+            // The client stopped waiting (repaint superseded, Claude Code
+            // restarted): release the consumer slot; the last one out cancels
+            // provider work nobody else needs. Node fires request 'close' on
+            // premature client disconnects; bun (1.3) surfaces nothing until
+            // the first write, so there the release happens only at settle —
+            // acceptable, the work was already done by then.
+            release?.();
+        };
+        request.on('close', () => {
+            if (!settled) {
+                onClientGone();
+            }
+        });
+
         try {
             const startedAtRender = Date.now();
-            const text = await renderOne(statusResult.data, context);
+            const scheduled = scheduleRender(renderKey, signal => renderOneWithSignal(statusResult.data, context, signal));
+            release = scheduled.release;
+            const text = await scheduled.promise;
+            settled = true;
             lastRenderMs = Date.now() - startedAtRender;
             bump('ok');
             sendText(response, 200, text);
         } catch (error) {
+            settled = true;
             fail(response, 500, 'render_failed', error instanceof Error ? error.message : String(error));
-        } finally {
-            inFlight--;
         }
+    }
+
+    /** renderOne with the request's cancellation signal wired into prefetch. */
+    function renderOneWithSignal(data: StatusJSON, context: InvocationContext, signal: AbortSignal): Promise<string> {
+        return renderOne(data, context, signal);
     }
 
     function writeDiscoveryFile(): void {
@@ -436,6 +511,7 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServerHa
             writeDiscoveryFile();
         },
         async stop(): Promise<void> {
+            clearInterval(idleSweeper);
             await new Promise<void>((resolve) => {
                 server.closeIdleConnections();
                 server.close(() => { resolve(); });

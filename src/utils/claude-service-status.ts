@@ -256,8 +256,8 @@ function clearFailureLock(): void {
     }
 }
 
-function getStatusPageProxyUrl(): string | null {
-    const proxyUrl = process.env.HTTPS_PROXY?.trim();
+function getStatusPageProxyUrl(env: NodeJS.ProcessEnv = process.env): string | null {
+    const proxyUrl = env.HTTPS_PROXY?.trim();
     return proxyUrl?.length ? proxyUrl : null;
 }
 
@@ -281,8 +281,8 @@ type StatusPageRequestFn = (
 
 const requestStatusPage: StatusPageRequestFn = (options, onResponse) => https.request(options, onResponse);
 
-async function getStatusPageRequestOptions(): Promise<https.RequestOptions | null> {
-    const proxyUrl = getStatusPageProxyUrl();
+async function getStatusPageRequestOptions(env: NodeJS.ProcessEnv): Promise<https.RequestOptions | null> {
+    const proxyUrl = getStatusPageProxyUrl(env);
 
     try {
         let agent: https.RequestOptions['agent'] | undefined;
@@ -308,9 +308,11 @@ async function getStatusPageRequestOptions(): Promise<https.RequestOptions | nul
 
 function fetchStatusPagePath(
     pathName: string,
-    requestFn: StatusPageRequestFn = requestStatusPage
+    requestFn: StatusPageRequestFn = requestStatusPage,
+    signal?: AbortSignal,
+    env: NodeJS.ProcessEnv = process.env
 ): Promise<string | null> {
-    return getStatusPageRequestOptions().then((baseOptions) => {
+    return getStatusPageRequestOptions(env).then((baseOptions) => {
         if (!baseOptions) {
             return null;
         }
@@ -323,7 +325,15 @@ function fetchStatusPagePath(
                     return;
                 }
                 settled = true;
+                if (signal) {
+                    signal.removeEventListener('abort', onAbort);
+                }
                 resolve(value);
+            };
+
+            const onAbort = () => {
+                request.destroy();
+                finish(null);
             };
 
             const requestOptions: https.RequestOptions = {
@@ -349,6 +359,13 @@ function fetchStatusPagePath(
                 request.destroy();
                 finish(null);
             });
+            if (signal) {
+                if (signal.aborted) {
+                    finish(null);
+                    return;
+                }
+                signal.addEventListener('abort', onAbort, { once: true });
+            }
             request.end();
         });
     });
@@ -368,7 +385,10 @@ function isCacheUsable(cache: CachedClaudeStatus, includeIncidents: boolean): bo
     return !includeIncidents || cache.incidentsQueried;
 }
 
-async function fetchClaudeServiceStatus(includeIncidents: boolean): Promise<ClaudeServiceStatusData> {
+async function fetchClaudeServiceStatus(
+    includeIncidents: boolean,
+    scope: { signal?: AbortSignal; env?: NodeJS.ProcessEnv } = {}
+): Promise<ClaudeServiceStatusData> {
     const nowMs = Date.now();
     const nowSeconds = Math.floor(nowMs / 1000);
 
@@ -398,8 +418,8 @@ async function fetchClaudeServiceStatus(includeIncidents: boolean): Promise<Clau
     }
 
     const [statusBody, incidentsBody] = await Promise.all([
-        fetchStatusPagePath(STATUS_PATH),
-        includeIncidents ? fetchStatusPagePath(INCIDENTS_PATH) : Promise.resolve(null)
+        fetchStatusPagePath(STATUS_PATH, requestStatusPage, scope.signal, scope.env),
+        includeIncidents ? fetchStatusPagePath(INCIDENTS_PATH, requestStatusPage, scope.signal, scope.env) : Promise.resolve(null)
     ]);
 
     const indicator = statusBody !== null ? parseClaudeStatusResponse(statusBody) : null;
@@ -422,10 +442,13 @@ async function fetchClaudeServiceStatus(includeIncidents: boolean): Promise<Clau
     return toStatusData(cache);
 }
 
-export async function prefetchClaudeStatusIfNeeded(lines: WidgetItem[][]): Promise<ClaudeServiceStatusData | null> {
+export async function prefetchClaudeStatusIfNeeded(
+    lines: WidgetItem[][],
+    scope: { signal?: AbortSignal; env?: NodeJS.ProcessEnv } = {}
+): Promise<ClaudeServiceStatusData | null> {
     if (!hasClaudeStatusWidgets(lines)) {
         return null;
     }
 
-    return fetchClaudeServiceStatus(claudeStatusNeedsIncidents(lines));
+    return fetchClaudeServiceStatus(claudeStatusNeedsIncidents(lines), scope);
 }

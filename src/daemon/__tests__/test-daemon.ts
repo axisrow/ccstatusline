@@ -36,12 +36,19 @@ export function hermeticDependencies(overrides: Partial<DaemonDependencies> = {}
     });
     return {
         loadSettings,
-        resolveTerminalWidth: () => 120,
-        buildInvocation: (context, terminalWidth) => {
+        resolveTerminalWidth: (_sessionId, _ttlSeconds, env) => {
+            // Honor the request env the way the production dependency does:
+            // an explicit override wins, otherwise a fixed width.
+            if (env.CCSTATUSLINE_WIDTH !== undefined) {
+                return Number.parseInt(env.CCSTATUSLINE_WIDTH, 10) || 120;
+            }
+            return 120;
+        },
+        buildInvocation: (context, terminalWidth, env) => {
             const invocation: RenderInvocation = {
                 configPath: '/tmp/hermetic-settings.json',
                 cwd: context.cwd ?? '/tmp',
-                env: { ...process.env },
+                env,
                 terminalWidth
             };
             invocations.push(invocation);

@@ -1,7 +1,11 @@
 import chalk from 'chalk';
 
-import type { SkillsMetrics } from './types';
 import type {
+    BlockMetrics,
+    SkillsMetrics
+} from './types';
+import type {
+    ClaudeStatusRenderData,
     RenderContext,
     RenderInvocation
 } from './types/RenderContext';
@@ -13,6 +17,7 @@ import { updateColorMap } from './utils/colors';
 import { ZERO_COMPACTION_STATS } from './utils/compaction';
 import type { LoadedSettings } from './utils/config';
 import { saveSettingsTo } from './utils/config';
+import type { TranscriptAnalysis } from './utils/jsonl';
 import { getTranscriptAnalysis } from './utils/jsonl';
 import {
     advanceGlobalPowerlineThemeIndex,
@@ -40,6 +45,21 @@ export interface RenderedStatusLines {
     loadError: string | null;
 }
 
+/**
+ * Provider data gathered before the render (#18). The shared daemon prefetches
+ * all of it concurrently (deduped per account/repo key, cancellable) and hands
+ * the bundle in; one-shot and serve mode leave it unset and the render
+ * computes each piece itself, exactly as before. A field left `undefined`
+ * means "not prefetched — compute here"; an explicit null is a computed empty
+ * result and suppresses the fallback (e.g. the block-metrics directory walk).
+ */
+export interface RenderPrefetch {
+    transcriptAnalysis?: TranscriptAnalysis | null;
+    usageData?: Awaited<ReturnType<typeof prefetchUsageDataIfNeeded>>;
+    claudeStatusData?: ClaudeStatusRenderData | null;
+    blockMetrics?: BlockMetrics | null;
+}
+
 function hasSessionDurationInStatusJson(data: StatusJSON): boolean {
     const durationMs = data.cost?.total_duration_ms;
     return typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs >= 0;
@@ -59,7 +79,8 @@ function hasSessionDurationInStatusJson(data: StatusJSON): boolean {
 export async function renderStatusLines(
     data: StatusJSON,
     loaded: LoadedSettings,
-    invocation: RenderInvocation
+    invocation: RenderInvocation,
+    prefetch: RenderPrefetch = {}
 ): Promise<RenderedStatusLines> {
     const { settings, loadError: configError } = loaded;
 
@@ -86,22 +107,28 @@ export async function renderStatusLines(
         }
     }
 
-    const transcriptAnalysisPromise = data.transcript_path
-        ? getTranscriptAnalysis(data.transcript_path, {
-            includeSessionDuration: hasSessionClock && !hasSessionDurationInStatusJson(data),
-            includeSpeedMetrics: hasSpeedItems,
-            includeSubagents: true,
-            speedWindowSeconds: Array.from(requestedSpeedWindows),
-            includeCompactionStats: hasCompactionWidget,
-            includeThinkingEffort: needsTranscriptThinkingEffort,
-            includeSessionName: hasSessionNameWidget,
-            includeLastTurnTokens: hasLastTurnTokensWidget
-        })
-        : Promise.resolve(null);
+    const transcriptAnalysisPromise = prefetch.transcriptAnalysis !== undefined
+        ? Promise.resolve(prefetch.transcriptAnalysis)
+        : data.transcript_path
+            ? getTranscriptAnalysis(data.transcript_path, {
+                includeSessionDuration: hasSessionClock && !hasSessionDurationInStatusJson(data),
+                includeSpeedMetrics: hasSpeedItems,
+                includeSubagents: true,
+                speedWindowSeconds: Array.from(requestedSpeedWindows),
+                includeCompactionStats: hasCompactionWidget,
+                includeThinkingEffort: needsTranscriptThinkingEffort,
+                includeSessionName: hasSessionNameWidget,
+                includeLastTurnTokens: hasLastTurnTokensWidget
+            })
+            : Promise.resolve(null);
     const [transcriptAnalysis, usageData, claudeStatusData] = await Promise.all([
         transcriptAnalysisPromise,
-        prefetchUsageDataIfNeeded(lines, data),
-        prefetchClaudeStatusIfNeeded(lines)
+        prefetch.usageData !== undefined
+            ? Promise.resolve(prefetch.usageData)
+            : prefetchUsageDataIfNeeded(lines, data),
+        prefetch.claudeStatusData !== undefined
+            ? Promise.resolve(prefetch.claudeStatusData)
+            : prefetchClaudeStatusIfNeeded(lines)
     ]);
 
     // --- Start of the synchronous formatting section (chalk setup through
@@ -150,7 +177,16 @@ export async function renderStatusLines(
         minimalist: settings.minimalistMode,
         gitCacheTtlSeconds: settings.gitCacheTtlSeconds,
         customCommandCacheTtlSeconds: settings.customCommandCacheTtlSeconds,
-        gitReviewNeedsChecks: lines.some(line => line.some(item => item.type === 'git-ci-status'))
+        gitReviewNeedsChecks: lines.some(line => line.some(item => item.type === 'git-ci-status')),
+        // Request env/cwd snapshots (#18): provider calls in the formatting
+        // section resolve through these instead of process state, so the
+        // daemon never swaps process.env/cwd between concurrent renders.
+        env: invocation.env,
+        cwd: invocation.cwd,
+        // Only meaningful when the daemon prefetch computed it: undefined
+        // (one-shot) lets usage widgets run the directory walk themselves,
+        // an explicit null suppresses it.
+        ...(prefetch.blockMetrics !== undefined ? { blockMetrics: prefetch.blockMetrics } : {})
     };
 
     const outputLines: string[] = [];
