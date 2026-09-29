@@ -99,8 +99,8 @@ function quotePathIfNeeded(filePath: string): string {
  * Determines the Claude config directory, checking CLAUDE_CONFIG_DIR environment variable first,
  * then falling back to the default ~/.claude directory.
  */
-export function getClaudeConfigDir(): string {
-    const envConfigDir = process.env.CLAUDE_CONFIG_DIR;
+export function getClaudeConfigDir(env: NodeJS.ProcessEnv = process.env): string {
+    const envConfigDir = env.CLAUDE_CONFIG_DIR;
 
     if (envConfigDir) {
         try {
@@ -133,9 +133,9 @@ export function getClaudeConfigDir(): string {
  * Claude Code stores this as a sibling of the default ~/.claude directory, but
  * inside CLAUDE_CONFIG_DIR when a valid config directory override is active.
  */
-export function getClaudeJsonPath(): string {
-    const configDir = getClaudeConfigDir();
-    const envConfigDir = process.env.CLAUDE_CONFIG_DIR;
+export function getClaudeJsonPath(env: NodeJS.ProcessEnv = process.env): string {
+    const configDir = getClaudeConfigDir(env);
+    const envConfigDir = env.CLAUDE_CONFIG_DIR;
 
     if (envConfigDir && configDir === path.resolve(envConfigDir)) {
         return path.join(configDir, '.claude.json');

@@ -187,6 +187,12 @@ export function resetTerminalWidthCache(): void {
 export interface TerminalWidthOptions {
     sessionId?: string;
     ttlSeconds?: number;
+    /**
+     * Environment the CCSTATUSLINE_WIDTH override is read from. The daemon
+     * passes the request's allowlisted snapshot so concurrent renders with
+     * different overrides need no process-global env swap (#18).
+     */
+    env?: NodeJS.ProcessEnv;
 }
 
 // Get terminal width.
@@ -195,6 +201,22 @@ export interface TerminalWidthOptions {
 // in-process memo, which the entry point has already populated. Only the entry
 // point supplies a session, so only it consults or writes the shared L2 cache.
 export function getTerminalWidth(options?: TerminalWidthOptions): number | null {
+    // Request-scoped resolution (#18): the daemon passes the request's
+    // allowlisted env snapshot, so the override and COLUMNS resolve per request
+    // without any process-global env swap. Equivalent to what `tput cols`
+    // reports under that environment (it prints $COLUMNS when set), minus a
+    // subprocess. Falls through to the shared memoized probe below.
+    if (options?.env !== undefined) {
+        const override = parsePositiveInteger(options.env.CCSTATUSLINE_WIDTH ?? '');
+        if (override !== null) {
+            return override;
+        }
+        const columns = parsePositiveInteger(options.env.COLUMNS ?? '');
+        if (columns !== null) {
+            return columns;
+        }
+    }
+
     if (hasProbed) {
         return cachedWidth;
     }

@@ -112,7 +112,7 @@ export class ContextBarWidget implements Widget {
 
         if (total === null && context.tokenMetrics) {
             const modelIdentifier = getModelContextIdentifier(context.data?.model);
-            total = getContextConfig(modelIdentifier).maxTokens;
+            total = getContextConfig(modelIdentifier, undefined, context.env).maxTokens;
         }
 
         if (used === null || total === null || total <= 0) {

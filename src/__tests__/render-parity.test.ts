@@ -29,9 +29,9 @@ import {
 const FIXTURES_DIR = path.join(__dirname, 'fixtures', 'render-parity');
 const TRANSCRIPT_PATH = path.join(FIXTURES_DIR, 'transcript.jsonl');
 
-// Exists and is not a git repository: git widgets fall back to "no git" and
-// custom commands still inherit a valid working directory.
-const NON_GIT_CWD = '/private/tmp';
+// Exists on every platform and is not a git repository: git widgets fall back
+// to "no git" and custom commands still inherit a valid working directory.
+const NON_GIT_CWD = os.tmpdir();
 // The cwd string carried in the golden payload (widgets print it verbatim).
 const PAYLOAD_CWD = '/tmp/ccs-parity-fixture/project';
 

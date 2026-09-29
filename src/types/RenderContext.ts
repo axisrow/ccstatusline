@@ -81,6 +81,16 @@ export interface RenderContext {
     lineIndex?: number;  // Index of the current line being rendered (for theme cycling)
     globalSeparatorIndex?: number;  // Global separator index that continues across lines
 
+    /**
+     * Environment and working directory snapshots for this render (#18).
+     * Provider calls that spawn child processes or read env-dependent config
+     * resolve through these instead of process.env/process.cwd, so the daemon
+     * can serve concurrent requests for different sessions without swapping
+     * process-global state. Unset in one-shot mode (process state is used).
+     */
+    env?: NodeJS.ProcessEnv;
+    cwd?: string;
+
     // For git widget thresholds
     gitData?: {
         changedFiles?: number;

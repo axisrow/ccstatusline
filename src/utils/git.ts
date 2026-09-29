@@ -1,10 +1,23 @@
-import { execFileSync } from 'child_process';
+import type { ExecFileOptionsWithStringEncoding } from 'child_process';
+import {
+    execFile,
+    execFileSync
+} from 'child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { promisify } from 'util';
 
+import { capMap } from '../daemon/provider-scope';
 import type { RenderContext } from '../types/RenderContext';
+
+// Promise-based execFile with string decoding (see usage-fetch.ts for the shape).
+const execFileAsync = promisify(execFile) as (
+    file: string,
+    args: readonly string[],
+    options: ExecFileOptionsWithStringEncoding
+) => Promise<{ stdout: string; stderr: string }>;
 
 export interface GitChangeCounts {
     insertions: number;
@@ -44,10 +57,32 @@ const GIT_CACHE_SCHEMA_VERSION = 1 as const;
 // must not freeze the statusline process - the error path below caches null
 // and the widget renders empty instead.
 const GIT_COMMAND_TIMEOUT_MS = 5_000;
+// Async capture bound: status/porcelain output on a pathological repo. The
+// sync path caps at spawnSync's 1 MiB default; this is deliberately larger so
+// the async prefetch does not turn a big-but-valid listing into a cache miss.
+const GIT_ASYNC_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
 // In-process cache keeps cwd in the key; the persistent cache stores cwd once
 // at the file level and keys entries by command.
 const gitCommandCache = new Map<string, GitCacheEntry>();
+// Same cap as the daemon provider caches (#18): a long-lived process could
+// otherwise accumulate one entry per (command, cwd) pair forever.
+const GIT_CACHE_MAX_ENTRIES = 256;
+// Commands each cwd actually executed, for the daemon prefetch (#18): it can
+// only warm cache keys it knows about, so every sync execution records its
+// args here and later renders prefetch them asynchronously. Bounded per cwd.
+const executedGitCommands = new Map<string, Map<string, string[]>>();
+
+function recordExecutedGitCommand(cwd: string, cacheToken: string, args: string[]): void {
+    let perCwd = executedGitCommands.get(cwd);
+    if (!perCwd) {
+        perCwd = new Map<string, string[]>();
+        executedGitCommands.set(cwd, perCwd);
+    }
+    perCwd.set(cacheToken, args);
+    capMap(perCwd, 64);
+    capMap(executedGitCommands, 32);
+}
 
 function getCacheDir(): string {
     return path.join(os.homedir(), '.cache', 'ccstatusline');
@@ -342,12 +377,14 @@ export function runGitArgs(args: string[], context: RenderContext, cacheCommand?
     // We use the environment variable instead of the CLI flag because older Git
     // versions (like 2.10.1) fail with "Unknown option: --no-optional-locks".
     // See https://git-scm.com/docs/git#Documentation/git.txt---no-optional-locks
+    // The env snapshot comes from the render context so the daemon serves
+    // concurrent requests without swapping process.env (#18).
 
     try {
         const output = execFileSync('git', args, {
             encoding: 'utf8',
             stdio: ['pipe', 'pipe', 'ignore'],
-            env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+            env: { ...(context.env ?? process.env), GIT_OPTIONAL_LOCKS: '0' },
             timeout: GIT_COMMAND_TIMEOUT_MS,
             windowsHide: true,
             ...(cwd ? { cwd } : {})
@@ -356,14 +393,80 @@ export function runGitArgs(args: string[], context: RenderContext, cacheCommand?
         const result = output.length > 0 ? output : null;
         const entry = createCacheEntry(result, metadata, now);
         gitCommandCache.set(memoryCacheKey, entry);
+        capMap(gitCommandCache, GIT_CACHE_MAX_ENTRIES);
+        if (cwd) {
+            recordExecutedGitCommand(cwd, cacheToken, args);
+        }
         writePersistentCacheEntry(metadata, persistentCacheKey, cwd, entry);
         return result;
     } catch {
         const entry = createCacheEntry(null, metadata, now);
         gitCommandCache.set(memoryCacheKey, entry);
+        capMap(gitCommandCache, GIT_CACHE_MAX_ENTRIES);
         writePersistentCacheEntry(metadata, persistentCacheKey, cwd, entry);
         return null;
     }
+}
+
+/**
+ * Async twin of runGitArgs for the daemon prefetch (#18): same cache keys, same
+ * TTL and mtime invalidation, same persistent cache — the only difference is a
+ * non-blocking child process (and that failures resolve to null instead of
+ * throwing into the sync render path). Warms the shared in-memory cache the
+ * sync formatter reads, so the serialized formatting section never spawns.
+ */
+export async function runGitArgsAsync(args: string[], context: RenderContext, cacheCommand?: string): Promise<string | null> {
+    const cwd = resolveGitCwd(context);
+    const cacheToken = cacheCommand ?? args.join('\0');
+    const memoryCacheKey = `${cacheToken}|${cwd ?? ''}`;
+    const metadata = getGitRepoMetadata(cwd);
+    const ttlMs = getGitCacheTtlMs(context);
+    const now = Date.now();
+
+    const memoryEntry = gitCommandCache.get(memoryCacheKey);
+    if (memoryEntry && isCacheEntryFresh(memoryEntry, metadata, ttlMs, now)) {
+        return memoryEntry.output;
+    }
+
+    const persistentEntry = readPersistentCacheEntry(metadata, cacheToken, cwd, ttlMs, now);
+    if (persistentEntry) {
+        gitCommandCache.set(memoryCacheKey, persistentEntry);
+        return persistentEntry.output;
+    }
+
+    try {
+        const execOptions: ExecFileOptionsWithStringEncoding = {
+            encoding: 'utf8',
+            maxBuffer: GIT_ASYNC_MAX_BUFFER_BYTES,
+            env: { ...(context.env ?? process.env), GIT_OPTIONAL_LOCKS: '0' },
+            timeout: GIT_COMMAND_TIMEOUT_MS,
+            killSignal: 'SIGKILL',
+            windowsHide: true,
+            ...(cwd ? { cwd } : {})
+        };
+        const output = (await execFileAsync('git', args, execOptions)).stdout.trimEnd();
+
+        const result = output.length > 0 ? output : null;
+        const entry = createCacheEntry(result, metadata, Date.now());
+        gitCommandCache.set(memoryCacheKey, entry);
+        capMap(gitCommandCache, GIT_CACHE_MAX_ENTRIES);
+        if (cwd) {
+            recordExecutedGitCommand(cwd, cacheToken, args);
+        }
+        writePersistentCacheEntry(metadata, cacheToken, cwd, entry);
+        return result;
+    } catch {
+        const entry = createCacheEntry(null, metadata, Date.now());
+        gitCommandCache.set(memoryCacheKey, entry);
+        capMap(gitCommandCache, GIT_CACHE_MAX_ENTRIES);
+        writePersistentCacheEntry(metadata, cacheToken, cwd, entry);
+        return null;
+    }
+}
+
+/** Commands previously executed for `cwd`, for the daemon prefetch (#18). */
+export function getExecutedGitCommands(cwd: string): string[][] {
+    return [...(executedGitCommands.get(cwd)?.values() ?? [])];
 }
 
 /**
@@ -371,6 +474,7 @@ export function runGitArgs(args: string[], context: RenderContext, cacheCommand?
  */
 export function clearGitCache(): void {
     gitCommandCache.clear();
+    executedGitCommands.clear();
 }
 
 export function isInsideGitWorkTree(context: RenderContext): boolean {

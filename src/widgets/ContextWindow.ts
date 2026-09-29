@@ -35,7 +35,7 @@ export class ContextWindowWidget implements Widget {
 
         if (total === null) {
             const modelIdentifier = getModelContextIdentifier(context.data?.model);
-            total = getContextConfig(modelIdentifier).maxTokens;
+            total = getContextConfig(modelIdentifier, undefined, context.env).maxTokens;
         }
 
         if (total <= 0) {
