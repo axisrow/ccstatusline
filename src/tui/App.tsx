@@ -150,6 +150,11 @@ export interface ConfirmDialogState {
     message: string;
     action: () => Promise<void>;
     cancelScreen?: Exclude<AppScreen, 'confirm'>;
+    /** Optional middle choice (e.g. "Keep existing" for a foreign statusLine). */
+    additionalAction?: {
+        label: string;
+        onSelect: () => Promise<void>;
+    };
 }
 
 interface FlowNoticeState {
@@ -674,9 +679,36 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
                 message = `${message}\n\nContinue?`;
             }
 
+            const keepExistingAction = async () => {
+                try {
+                    await installStatusLine({
+                        commandMode: selection.commandMode,
+                        keepExisting: true
+                    });
+                    setScreen('main');
+                    setFlashMessage({
+                        text: '✓ Kept existing status line',
+                        color: 'green'
+                    });
+                } catch {
+                    setFlashMessage({
+                        text: '✗ Install failed',
+                        color: 'red'
+                    });
+                    setScreen('install');
+                }
+                setConfirmDialog(null);
+            };
+
             setConfirmDialog({
                 message,
                 cancelScreen: 'install',
+                additionalAction: existing && !isAlreadyInstalled
+                    ? {
+                        label: 'Keep existing',
+                        onSelect: keepExistingAction
+                    }
+                    : undefined,
                 action: async () => {
                     try {
                         if (selection.globalInstallCommand) {
@@ -1371,6 +1403,12 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
                 {screen === 'confirm' && confirmDialog && (
                     <ConfirmDialog
                         message={confirmDialog.message}
+                        additionalAction={confirmDialog.additionalAction
+                            ? {
+                                label: confirmDialog.additionalAction.label,
+                                onSelect: () => void confirmDialog.additionalAction?.onSelect()
+                            }
+                            : undefined}
                         onConfirm={() => void confirmDialog.action()}
                         onCancel={() => {
                             setScreen(getConfirmCancelScreen(confirmDialog));
