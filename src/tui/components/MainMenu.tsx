@@ -17,6 +17,7 @@ export type MainMenuOption = 'lines'
     | 'theme'
     | 'lineThemes'
     | 'powerline'
+    | 'presets'
     | 'terminalConfig'
     | 'globalOverrides'
     | 'install'
@@ -93,6 +94,12 @@ export function buildMainMenuItems(
             value: 'lines',
             description:
                 'Configure any number of status lines with various widgets like model info, git status, and token usage'
+        },
+        {
+            label: '🧩 Presets',
+            value: 'presets',
+            description:
+                'Replace the configuration with a curated setup: Starter, Intermediate, or Advanced'
         },
         {
             label: '🎨 Edit Colors',

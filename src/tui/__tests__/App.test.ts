@@ -189,6 +189,7 @@ describe('Main menu structure', () => {
             packageManager: 'npm'
         })).toEqual([
             'lines',
+            'presets',
             'colors',
             'theme',
             'lineThemes',
@@ -212,6 +213,7 @@ describe('Main menu structure', () => {
     it('keeps install in its own section when not installed', () => {
         expect(getMenuValues(false, false)).toEqual([
             'lines',
+            'presets',
             'colors',
             'theme',
             'lineThemes',
@@ -240,6 +242,7 @@ describe('Main menu structure', () => {
 
         expect(getMenuValues(true, false, installation)).toEqual([
             'lines',
+            'presets',
             'colors',
             'theme',
             'lineThemes',
@@ -282,14 +285,14 @@ describe('Main menu structure', () => {
             sublabel: '(install first)'
         }));
         expect(buildManageInstallationItems()[0]).toEqual(expect.objectContaining({ label: '🔄 Check for Updates' }));
-        expect(getMainMenuInstallSelectionIndex(false)).toBe(9);
-        expect(getMainMenuInstallSelectionIndex(true, autoInstallation)).toBe(10);
-        expect(getMainMenuInstallSelectionIndex(true, pinnedInstallation)).toBe(10);
-        expect(getMainMenuSelectionIndex(buildMainMenuItems(true, false, autoInstallation), 'install')).toBe(10);
+        expect(getMainMenuInstallSelectionIndex(false)).toBe(10);
+        expect(getMainMenuInstallSelectionIndex(true, autoInstallation)).toBe(11);
+        expect(getMainMenuInstallSelectionIndex(true, pinnedInstallation)).toBe(11);
+        expect(getMainMenuSelectionIndex(buildMainMenuItems(true, false, autoInstallation), 'install')).toBe(11);
         expect(getMainMenuSelectionIndex(
             buildMainMenuItems(true, false, pinnedInstallation),
             'manageInstallation'
-        )).toBe(10);
+        )).toBe(11);
     });
 
     it('keeps line themes when powerline hides the global theme entry', () => {

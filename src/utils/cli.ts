@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+
 import type { Settings } from '../types/Settings';
 import { SettingsSchema } from '../types/Settings';
 import type { WidgetItem } from '../types/Widget';
@@ -12,6 +14,11 @@ import {
     validateImportFile
 } from './config';
 import { generateGuid } from './guid';
+import {
+    PRESETS,
+    buildPresetSettings,
+    getPreset
+} from './presets';
 import {
     getAllWidgetTypes,
     resolveLegacyWidgetType
@@ -38,6 +45,8 @@ const USAGE = [
     '  widget add <line> <widget> [--index N] [--option value ...]',
     '  widget remove <line> <index-or-type>',
     '  widget move <line> <index> --to <index>',
+    '  preset list                                list available preset configurations',
+    '  preset apply <name>                        replace settings.json with a preset (old file kept as settings.json.bak)',
     '  set <option-path> <value>                  set a global option (JSON value or plain string)',
     '  validate [--file <path>]                   exit 0/1 with a machine-readable report',
     '  help                                       show this help',
@@ -575,6 +584,57 @@ async function cmdSet(args: string[]): Promise<CliResult> {
     });
 }
 
+function cmdPresetList(): CliResult {
+    const presets = PRESETS.map(({ name, title, description }) => ({ name, title, description }));
+    const message = presets.map(preset => `${preset.name.padEnd(13)} ${preset.title} — ${preset.description}`).join('\n');
+    return ok(message, { presets });
+}
+
+async function cmdPresetApply(name: string | undefined, extra: string[]): Promise<CliResult> {
+    const available = PRESETS.map(preset => preset.name).join(', ');
+    if (name === undefined || name === '') {
+        return fail(`preset apply requires a preset name; available: ${available}`);
+    }
+    if (extra.length > 0) {
+        return fail(`unexpected argument '${extra[0]}' for preset apply`);
+    }
+    const preset = getPreset(name);
+    if (!preset) {
+        return fail(`unknown preset '${name}'; available: ${available}`);
+    }
+
+    // Whole-file replace is the most destructive mutation there is, so it goes
+    // through the same guard as every other mutating command: never clobber a
+    // config the tool could not even parse.
+    const load = await loadMutableSettings();
+    if ('exitCode' in load)
+        return load;
+
+    const configPath = getConfigPath();
+    let backup: string | null = null;
+    if (fs.existsSync(configPath)) {
+        backup = `${configPath}.bak`;
+        fs.copyFileSync(configPath, backup);
+    }
+
+    return persistSettings(buildPresetSettings(preset), {
+        message: `applied preset '${preset.name}' to ${configPath}${backup ? ` (previous config saved to ${backup})` : ''}`,
+        data: { applied: preset.name, backup }
+    });
+}
+
+async function cmdPreset(args: string[]): Promise<CliResult> {
+    const sub = args[0];
+    if (sub === undefined || sub === 'list') {
+        return cmdPresetList();
+    }
+    if (sub === 'apply') {
+        return cmdPresetApply(args[1], args.slice(2));
+    }
+    // 'preset starter' === 'preset apply starter'
+    return cmdPresetApply(sub, args.slice(1));
+}
+
 function cmdHelp(): CliResult {
     return ok(USAGE.join('\n'), { usage: USAGE });
 }
@@ -597,6 +657,9 @@ export async function executeCli(argv: string[]): Promise<CliResult> {
     }
     if (command === 'widget') {
         return cmdWidget(args[1], args.slice(2));
+    }
+    if (command === 'preset') {
+        return cmdPreset(args.slice(1));
     }
     return fail(`unknown command '${command ?? ''}'; run 'ccstatusline help'`);
 }
