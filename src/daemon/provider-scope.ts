@@ -46,8 +46,12 @@ export class RefreshGroup {
         const job: RefreshJob = {
             controller,
             consumers: 1,
+            // Only unregister while still owning the key: a cancelled job can
+            // settle after a fresh job already replaced it (#18 review).
             promise: work(controller.signal).finally(() => {
-                this.jobs.delete(key);
+                if (this.jobs.get(key) === job) {
+                    this.jobs.delete(key);
+                }
             })
         };
         this.jobs.set(key, job);
