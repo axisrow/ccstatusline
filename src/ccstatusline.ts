@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { existsSync } from 'fs';
+
 import { renderStatusLines } from './render';
 import { runServeLoop } from './serve';
 import type { StatusJSON } from './types/StatusJSON';
@@ -190,6 +192,9 @@ async function main() {
         }
     } else {
         // Interactive mode - run TUI
+        // First run = settings.json absent; must be captured before this
+        // loadSettings() materializes the defaults on disk.
+        const firstRun = !existsSync(getConfigPath());
         // Remove updatemessage before running TUI
         const settings = await loadSettings();
         if (settings.updatemessage) {
@@ -201,7 +206,7 @@ async function main() {
         // binary every couple of seconds, so keeping that graph off the
         // render path is worth the dynamic import here.
         const { runTUI } = await import('./tui');
-        runTUI();
+        runTUI(firstRun);
     }
 }
 

@@ -439,6 +439,68 @@ describe('cli commands', () => {
         });
     });
 
+    describe('preset commands', () => {
+        it('lists the available presets', async () => {
+            const result = await executeCli(['preset', 'list']);
+
+            expect(result.exitCode).toBe(0);
+            expect(result.message).toContain('starter');
+            expect(result.message).toContain('intermediate');
+            expect(result.message).toContain('advanced');
+            const data = result.data as { presets: { name: string }[] };
+            expect(data.presets).toHaveLength(3);
+        });
+
+        it('applies a preset, replacing the whole config and backing up the old file', async () => {
+            writeDisk('{"version":4,"lines":[[{"id":"1","type":"model"}]]}');
+            const before = readDiskRaw();
+
+            const result = await executeCli(['preset', 'apply', 'starter']);
+
+            expect(result.exitCode).toBe(0);
+            const disk = readDisk();
+            expect(disk.version).toBe(CURRENT_VERSION);
+            expect(lineTypes(disk, 0)).toEqual(['model', 'separator', 'context-percentage', 'separator', 'git-branch']);
+            const backupPath = `${getSettingsPaths().settingsPath}.bak`;
+            expect(fs.existsSync(backupPath)).toBe(true);
+            expect(fs.readFileSync(backupPath, 'utf-8')).toBe(before);
+        });
+
+        it('accepts the bare preset name as an apply alias', async () => {
+            const result = await executeCli(['preset', 'starter']);
+
+            expect(result.exitCode).toBe(0);
+            expect(lineTypes(readDisk(), 0)).toContain('git-branch');
+        });
+
+        it('writes the preset on first run when settings.json is missing', async () => {
+            const result = await executeCli(['preset', 'apply', 'intermediate']);
+
+            expect(result.exitCode).toBe(0);
+            const disk = readDisk();
+            expect(lineTypes(disk, 0)).toContain('model');
+            expect(lineTypes(disk, 1)).toContain('tokens-input');
+        });
+
+        it('fails with the available names for an unknown preset', async () => {
+            const result = await executeCli(['preset', 'apply', 'nope']);
+
+            expect(result.exitCode).toBe(1);
+            expect(result.message).toContain('unknown preset');
+            expect(result.message).toContain('starter');
+        });
+
+        it('refuses to clobber an unreadable config', async () => {
+            writeDisk('{not json');
+
+            const result = await executeCli(['preset', 'apply', 'starter']);
+
+            expect(result.exitCode).toBe(1);
+            expect(result.message).toContain('refusing to modify');
+            expect(readDiskRaw()).toBe('{not json');
+        });
+    });
+
     describe('help and usage errors', () => {
         it('prints usage for help and unknown commands', async () => {
             const help = await executeCli(['help']);
