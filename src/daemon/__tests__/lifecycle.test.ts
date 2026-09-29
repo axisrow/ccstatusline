@@ -184,10 +184,14 @@ describe('daemon lifecycle: stale state recovery', () => {
             protocol: '1',
             version: '0.0.0-dead',
             pid: String(deadPid),
-            socket: path.join(runtimeDir, `daemon-${deadPid}.sock`),
+            // A path with nothing behind it: probes fail fast with
+            // ECONNREFUSED on every platform (a bound-but-silent listener
+            // would make each probe wait out the full health timeout).
+            socket: path.join(runtimeDir, 'daemon-gone.sock'),
             token: 'f'.repeat(64)
         });
-        // A leftover socket file from the killed owner (kill -9 never cleans).
+        // A leftover socket file from the killed owner (kill -9 never cleans),
+        // at its own path: the server-side sweep must remove it on start.
         const staleSocket = path.join(runtimeDir, `daemon-${deadPid}.sock`);
         const staleServer = net.createServer();
         await new Promise<void>(resolve => staleServer.listen({ path: staleSocket }, resolve));
@@ -195,8 +199,6 @@ describe('daemon lifecycle: stale state recovery', () => {
 
         const times = recorder();
         const terminate = (pid: number) => { times.signals.push(pid); };
-        // The dead-owner socket belongs to a plain TCP server: every probe
-        // waits out the full health timeout before failing, so keep it small.
         const outcome = await ensureDaemon({
             runtimeDir,
             terminate,
@@ -211,6 +213,33 @@ describe('daemon lifecycle: stale state recovery', () => {
         const discovery = fs.readFileSync(getDiscoveryPath(runtimeDir), 'utf8');
         expect(discovery).not.toContain('0.0.0-dead');
         expect(discovery).not.toContain(`pid=${deadPid}`);
+    });
+
+    it('keeps health probes bounded against a bound-but-silent socket', { timeout: 10_000 }, async () => {
+        // A listener with no HTTP server behind it accepts connections and
+        // never answers: bun's ClientRequest timeout does not fire on Linux,
+        // so the external per-probe timer is what keeps ensureDaemon bounded.
+        const silentSocket = path.join(runtimeDir, 'daemon-silent.sock');
+        const silentServer = net.createServer();
+        await new Promise<void>(resolve => silentServer.listen({ path: silentSocket }, resolve));
+        socketsToClose.push(silentServer);
+        writeDiscovery({
+            protocol: '1',
+            version: '0.0.0-silent',
+            pid: String(findDeadPid()),
+            socket: silentSocket,
+            token: 'd'.repeat(64)
+        });
+
+        const times = recorder();
+        const outcome = await ensureDaemon({
+            runtimeDir,
+            spawnDaemon: spawnInProcessServer(times, 20),
+            timings: { healthMs: 150, pollMs: 25 }
+        });
+
+        expect(outcome.state).toBe('started');
+        expect(times.signals).toHaveLength(0);
     });
 
     it('never signals a live pid that does not answer as a daemon (pid reuse)', async () => {

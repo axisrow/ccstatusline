@@ -177,9 +177,26 @@ function unlinkDiscoveryGuarded(discoveryPath: string): void {
  * discovery token. Resolves null on any failure — connect error, timeout,
  * non-200, malformed body — because for the lifecycle every one of those
  * means the same thing: this endpoint is not a ready compatible daemon.
+ *
+ * The bound is enforced by an external timer, not ClientRequest#setTimeout:
+ * against a silent listener (a socket file someone else bound without an
+ * HTTP server behind it) bun's request timeout does not fire on Linux, and
+ * the probe would hang past its bound.
  */
 function healthRequest(discovery: DaemonDiscovery, timeoutMs: number): Promise<DaemonHealth | null> {
     return new Promise((resolve) => {
+        let settled = false;
+        const timeout: { id?: NodeJS.Timeout } = {};
+        const finish = (value: DaemonHealth | null): void => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            if (timeout.id !== undefined) {
+                clearTimeout(timeout.id);
+            }
+            resolve(value);
+        };
         const request = http.request({
             socketPath: discovery.socket,
             method: 'GET',
@@ -190,27 +207,27 @@ function healthRequest(discovery: DaemonDiscovery, timeoutMs: number): Promise<D
             response.on('data', (chunk: Buffer) => { chunks.push(chunk); });
             response.on('end', () => {
                 if (response.statusCode !== 200) {
-                    resolve(null);
+                    finish(null);
                     return;
                 }
                 try {
                     const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as DaemonHealth;
                     if (typeof parsed.protocol === 'number' && typeof parsed.version === 'string' && typeof parsed.pid === 'number') {
-                        resolve(parsed);
+                        finish(parsed);
                     } else {
-                        resolve(null);
+                        finish(null);
                     }
                 } catch {
-                    resolve(null);
+                    finish(null);
                 }
             });
-            response.on('error', () => { resolve(null); });
+            response.on('error', () => { finish(null); });
         });
-        request.setTimeout(timeoutMs, () => {
+        request.on('error', () => { finish(null); });
+        timeout.id = setTimeout(() => {
             request.destroy();
-            resolve(null);
-        });
-        request.on('error', () => { resolve(null); });
+            finish(null);
+        }, timeoutMs);
         request.end();
     });
 }
