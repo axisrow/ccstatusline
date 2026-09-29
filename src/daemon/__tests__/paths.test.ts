@@ -22,15 +22,34 @@ import {
 
 let runtimeDir = '';
 
+// bun test runs every file in one process, so env mutations must be restored:
+// a leaked TMPDIR (e.g. the macOS-style '/private/tmp/' set below) breaks
+// mkdtemp for every later test on Linux.
+const savedEnv: Record<string, string | undefined> = {};
+
+// Same unset semantics as the server's env swap; keeps the dynamic-delete
+// lint rule intact.
+function unsetEnv(name: string): void {
+    Reflect.deleteProperty(process.env, name);
+}
+
 beforeEach(() => {
     runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-paths-'));
-    delete process.env.CCSTATUSLINE_RUNTIME_DIR;
-    delete process.env.XDG_RUNTIME_DIR;
-    delete process.env.TMPDIR;
+    for (const name of ['CCSTATUSLINE_RUNTIME_DIR', 'XDG_RUNTIME_DIR', 'TMPDIR']) {
+        savedEnv[name] = process.env[name];
+        unsetEnv(name);
+    }
 });
 
 afterEach(() => {
     fs.rmSync(runtimeDir, { recursive: true, force: true });
+    for (const [name, value] of Object.entries(savedEnv)) {
+        if (value === undefined) {
+            unsetEnv(name);
+        } else {
+            process.env[name] = value;
+        }
+    }
 });
 
 describe('getRuntimeDir', () => {
