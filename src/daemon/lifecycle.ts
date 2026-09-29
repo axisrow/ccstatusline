@@ -275,6 +275,13 @@ function readLockInfo(lockPath: string): LockInfo | null {
  * wins. A lock whose owner died (crashed starter) or that overstayed its
  * age bound is evicted once; losing that eviction race means another
  * starter took over and this caller becomes a waiter.
+ *
+ * The file is created before its content is written, so the create→write
+ * gap leaves it briefly unreadable — another starter would classify that
+ * as stale and evict it. Ownership is therefore re-verified after the
+ * write: if our lock did not survive to hold our pid, someone took over
+ * and this caller converges as a waiter instead of spawning a second
+ * server.
  */
 function acquireStartupLock(runtimeDir: string, lockStaleMs: number): boolean {
     const lockPath = getLockPath(runtimeDir);
@@ -283,7 +290,8 @@ function acquireStartupLock(runtimeDir: string, lockStaleMs: number): boolean {
             const fd = fs.openSync(lockPath, 'wx', 0o600);
             fs.writeFileSync(fd, `pid=${process.pid}\nacquired=${new Date().toISOString()}\n`);
             fs.closeSync(fd);
-            return true;
+            const info = readLockInfo(lockPath);
+            return info !== null && info.pid === process.pid;
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
                 throw error;
@@ -390,8 +398,9 @@ async function awaitReadyDaemon(
  * Signal a daemon whose identity is established (health answered on its
  * socket with the discovery pid, authenticated by the discovery token) and
  * wait, bounded, for it to release its endpoints. SIGTERM first; the
- * fallback SIGKILL runs only after that identity check, so a recycled pid
- * can never be on the receiving end.
+ * SIGKILL fallback re-establishes that identity right before the fatal
+ * signal — the grace window is long enough for the pid to die and be
+ * recycled, so a stale check from before SIGTERM is not enough.
  */
 async function verifiedStop(
     discovery: DaemonDiscovery,
@@ -404,8 +413,6 @@ async function verifiedStop(
 
     // Released: the owner unlinked its discovery (graceful shutdown) or the
     // pid is gone (died on the signal — leftover files are ours to clean).
-    // A closed health endpoint alone proves nothing: it can lag the file
-    // cleanup, and a hung shutdown must still reach the SIGKILL fallback.
     const isReleased = (): boolean => {
         return !fs.existsSync(discoveryPath) || !isPidAlive(discovery.pid);
     };
@@ -419,6 +426,15 @@ async function verifiedStop(
         await delay(timings.pollMs);
     }
 
+    // Re-identify before the fatal signal. Nothing answering on the daemon's
+    // authenticated socket means either a hung event loop or a recycled pid
+    // — both are refused: signaling an unverified pid can kill an unrelated
+    // process. The hung daemon is left running and named in the error so it
+    // can be dealt with deliberately.
+    const health = await healthRequest(discovery, timings.healthMs);
+    if (health?.pid !== discovery.pid) {
+        throw new Error(`daemon pid ${discovery.pid} survived SIGTERM and no longer answers as a ccstatusline daemon on ${discovery.socket}; refusing to SIGKILL an unverified process`);
+    }
     try {
         kill(discovery.pid);
     } catch (error) {
@@ -440,6 +456,13 @@ async function verifiedStop(
 
 // ---------- public lifecycle ----------
 
+/** The IPC transport is Unix-socket only; every lifecycle entry refuses loudly. */
+function assertIpcPlatform(): void {
+    if (process.platform === 'win32') {
+        throw new Error('daemon mode is not supported on Windows (Unix socket transport)');
+    }
+}
+
 /**
  * Ensure exactly one daemon compatible with this client build is running.
  * Safe to call concurrently: contenders converge on the startup lock, and
@@ -448,9 +471,7 @@ async function verifiedStop(
  * incompatible (pre-upgrade) daemon after verifying its identity.
  */
 export async function ensureDaemon(options: LifecycleOptions = {}): Promise<EnsureOutcome> {
-    if (process.platform === 'win32') {
-        throw new Error('daemon mode is not supported on Windows (Unix socket transport)');
-    }
+    assertIpcPlatform();
     const runtimeDir = options.runtimeDir ?? getRuntimeDir();
     const version = options.currentVersion ?? getPackageVersion();
     const timings: LifecycleTimings = { ...DEFAULT_TIMINGS, ...options.timings };
@@ -531,9 +552,7 @@ function spawnDetachedDaemon(options: LifecycleOptions): SpawnedDaemon | undefin
  * not answering is treated as a recycled pid and left alone.
  */
 export async function stopDaemon(options: LifecycleOptions = {}): Promise<StopOutcome> {
-    if (process.platform === 'win32') {
-        throw new Error('daemon mode is not supported on Windows (Unix socket transport)');
-    }
+    assertIpcPlatform();
     const runtimeDir = options.runtimeDir ?? getRuntimeDir();
     const timings: LifecycleTimings = { ...DEFAULT_TIMINGS, ...options.timings };
     const discoveryPath = getDiscoveryPath(runtimeDir);
@@ -566,6 +585,7 @@ export async function stopDaemon(options: LifecycleOptions = {}): Promise<StopOu
  * build is reported as `incompatible`, never as running.
  */
 export async function daemonStatus(options: LifecycleOptions = {}): Promise<StatusOutcome> {
+    assertIpcPlatform();
     const runtimeDir = options.runtimeDir ?? getRuntimeDir();
     const version = options.currentVersion ?? getPackageVersion();
     const timings: LifecycleTimings = { ...DEFAULT_TIMINGS, ...options.timings };

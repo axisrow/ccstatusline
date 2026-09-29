@@ -336,6 +336,50 @@ describe('daemon lifecycle: verified stop', () => {
         expect(fs.existsSync(server.socketPath)).toBe(false);
     });
 
+    it('falls back to SIGKILL only after re-identifying the daemon', async () => {
+        const server = await startServerHere();
+        const times = recorder();
+        let kills = 0;
+        const terminate = (pid: number) => { times.signals.push(pid); }; // Survives SIGTERM.
+        const kill = (pid: number) => {
+            kills++;
+            times.signals.push(pid);
+            void server.stop();
+        };
+
+        const outcome = await stopDaemon({ runtimeDir, terminate, kill, timings: { stopMs: 200, killMs: 500, pollMs: 20, healthMs: 300 } });
+
+        expect(outcome).toEqual({ state: 'stopped', pid: process.pid });
+        // Exactly one SIGTERM and one re-identified SIGKILL.
+        expect(times.signals).toEqual([process.pid, process.pid]);
+        expect(kills).toBe(1);
+    });
+
+    it('refuses the SIGKILL fallback when the daemon stops answering mid-shutdown', async () => {
+        const server = await startServerHere();
+        const times = recorder();
+        let kills = 0;
+        // The pid stays alive (this test process) but the daemon's endpoint
+        // goes silent mid-shutdown: what lives behind a silent socket may be
+        // a recycled pid, so the fatal signal must be refused. Replacing the
+        // socket file with a regular file reproduces exactly that state —
+        // connects fail instantly and health stops answering.
+        const terminate = (pid: number) => {
+            times.signals.push(pid);
+            fs.rmSync(server.socketPath, { force: true });
+            fs.writeFileSync(server.socketPath, 'not a socket');
+        };
+        const kill = (pid: number) => {
+            kills++;
+            times.signals.push(pid);
+        };
+
+        await expect(stopDaemon({ runtimeDir, terminate, kill, timings: { stopMs: 200, killMs: 500, pollMs: 20, healthMs: 300 } }))
+            .rejects.toThrow('refusing to SIGKILL');
+        expect(times.signals).toEqual([process.pid]);
+        expect(kills).toBe(0);
+    });
+
     it('refuses to stop when the socket owner does not match the discovery pid', async () => {
         const server = await startServerHere();
         // Tamper: discovery claims a different pid than the live server.
