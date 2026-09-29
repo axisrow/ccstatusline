@@ -57,7 +57,7 @@ function flushInk() {
 }
 
 describe('ConfirmDialog', () => {
-    it('shows Yes/No only and confirms with the second option', async () => {
+    it('shows Yes/No only and cancels with the second option', async () => {
         const stdin = createMockStdin();
         const stdout = createMockStdout();
         const stderr = createMockStdout();
