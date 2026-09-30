@@ -79,29 +79,65 @@ context=$(
 [ "${#context}" -le "$max_context_bytes" ] \
     || die "invocation context too large (${#context} > $max_context_bytes bytes)"
 
-# fd 3 is duped from the original stdin before the heredoc takes over fd 0,
-# so curl reads its config from stdin (--config -) while the body still
-# points at the caller's piped status JSON (@/dev/fd/3). Buffering the body
-# in a variable means stdout is written only after curl reports success: a
-# truncated transfer or an HTTP error (--fail) leaves stdout empty.
-body=$(curl -q -sS --fail \
-    --unix-socket "$socket" \
-    --config - \
-    --data-binary @/dev/fd/3 \
-    -H 'Content-Type: application/json' \
-    --noproxy '*' \
-    --connect-timeout "$connect_timeout" \
-    --max-time "$total_timeout" \
-    'http://localhost/v1/render' \
-    3<&0 <<CONFIG
+# Buffer the piped status JSON once: retry attempts below must re-send the
+# same payload, and stdin cannot be rewound. Both temp files hold no secrets
+# (payload + rendered line are what the caller piped/asked for); the auth
+# token still travels only through the curl config on stdin.
+payload_tmp=$(mktemp "${TMPDIR:-/tmp}/ccstatusline-ipc-payload.XXXXXX") || die "cannot buffer stdin"
+body_tmp=$(mktemp "${TMPDIR:-/tmp}/ccstatusline-ipc-body.XXXXXX") || { rm -f "$payload_tmp"; die "cannot create temp file"; }
+cleanup() { rm -f "$payload_tmp" "$body_tmp"; }
+trap cleanup EXIT
+# Signal exits must not resume the retry loop (a handler without exit would
+# return into the backoff sleep); the EXIT trap still removes the temp files.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+cat > "$payload_tmp"
+
+attempt=0
+while :; do
+    code=$(curl -q -sS --fail \
+        --unix-socket "$socket" \
+        --config - \
+        --data-binary @"$payload_tmp" \
+        -o "$body_tmp" \
+        -w '%{http_code}' \
+        -H 'Content-Type: application/json' \
+        --noproxy '*' \
+        --connect-timeout "$connect_timeout" \
+        --max-time "$total_timeout" \
+        'http://localhost/v1/render' \
+        <<CONFIG
 header = "Authorization: Bearer $token"
 header = "X-CCStatusLine-Context: $context"
 CONFIG
-) || die "daemon request failed (curl exit $?)"
+    )
+    curl_rc=$?
+    [ "$curl_rc" -eq 0 ] && break
+    attempt=$((attempt + 1))
+    # 503 busy: the render queue is momentarily full (a burst of repaints
+    # across sessions). Back off on a growing ladder — 8s total budget — so
+    # even a cold burst of dozens of large renders waits out the queue, the
+    # same thing the next Claude Code repaint tick would do. Any other
+    # failure (dead daemon, bad request, render error) fails fast so stdout
+    # stays empty.
+    if [ "$curl_rc" -eq 22 ] && [ "$code" = "503" ] && [ "$attempt" -lt 14 ]; then
+        case $attempt in
+            1 | 2) sleep 0.05 ;;
+            3 | 4) sleep 0.1 ;;
+            5 | 6) sleep 0.25 ;;
+            7 | 8) sleep 0.5 ;;
+            *) sleep 1 ;;
+        esac
+        continue
+    fi
+    die "daemon request failed (curl exit $curl_rc)"
+done
 
 # An empty 200 body is a successful "nothing to render" answer — it matches
 # piped mode, which prints nothing. Report success with no output rather than
 # falling off the end with the failed [ -n test as the exit status.
+body=$(cat "$body_tmp")
 if [ -n "$body" ]; then
     printf '%s\n' "$body"
 fi

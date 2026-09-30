@@ -441,13 +441,20 @@ describe('daemon lifecycle: status', () => {
         expect(outcome.state).toBe('stopped');
     });
 
-    it('reports running for a healthy compatible daemon', async () => {
+    it('reports running for a healthy compatible daemon with observability fields', async () => {
         await startServerHere();
         const outcome = await daemonStatus({ runtimeDir });
         expect(outcome.state).toBe('running');
         if (outcome.state === 'running') {
             expect(outcome.pid).toBe(process.pid);
             expect(outcome.startedAt).toBeDefined();
+            // #19 status UX: uptime and aggregate counters come from
+            // /v1/health; this status call itself bumps ok.
+            expect(outcome.uptimeSeconds).toBeGreaterThanOrEqual(0);
+            expect(outcome.counters?.ok).toBeGreaterThanOrEqual(1);
+            expect(Object.getPrototypeOf(outcome.counters ?? {})).toBe(Object.prototype);
+            // Never secrets: the reported shape carries no discovery token.
+            expect(JSON.stringify(outcome)).not.toContain('token');
         }
     });
 

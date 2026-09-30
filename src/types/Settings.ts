@@ -116,7 +116,20 @@ export const SettingsSchema = z.object({
         message: z.string().nullable().optional(),
         remaining: z.number().nullable().optional()
     }).optional(),
-    installation: InstallationMetadataSchema.optional()
+    installation: InstallationMetadataSchema.optional(),
+    // Daemon shared mode (#19): present while the Claude Code statusLine
+    // points at the IPC client wrapper. Remembers the exact previous statusLine
+    // so returning to one-shot mode restores it verbatim; null previous means
+    // there was no statusLine and returning removes ours. Additive optional
+    // key, no version bump needed (same precedent as `theme`).
+    daemonSharedMode: z.object({
+        previousStatusLine: z.object({
+            type: z.string(),
+            command: z.string(),
+            padding: z.number().optional(),
+            refreshInterval: z.number().optional()
+        }).nullable()
+    }).optional()
 });
 
 // Inferred type from schema

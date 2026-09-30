@@ -75,6 +75,13 @@ export interface DaemonHealth {
     protocol: number;
     version: string;
     pid: number;
+    /** Optional observability fields (#19) — never secrets, safe to print. */
+    runtime?: string;
+    startedAt?: string;
+    uptimeSeconds?: number;
+    lastRenderMs?: number | null;
+    activeRenders?: number;
+    counters?: Record<string, number>;
 }
 
 export interface LifecycleOptions {
@@ -108,10 +115,21 @@ export type StopOutcome
         | { state: 'not-running'; detail?: string };
 
 export type StatusOutcome
-    = | { state: 'running'; pid: number; version: string; protocol: number; startedAt: string | undefined }
-        | { state: 'stopped' }
-        | { state: 'stale'; detail: string }
-        | { state: 'incompatible'; pid: number; version: string; protocol: number; expectedVersion: string };
+    = | {
+        state: 'running';
+        pid: number;
+        version: string;
+        protocol: number;
+        startedAt: string | undefined;
+        runtime?: string;
+        uptimeSeconds?: number;
+        lastRenderMs?: number | null;
+        activeRenders?: number;
+        counters?: Record<string, number>;
+    }
+    | { state: 'stopped' }
+    | { state: 'stale'; detail: string }
+    | { state: 'incompatible'; pid: number; version: string; protocol: number; expectedVersion: string };
 
 const LOCK_FILE_NAME = 'daemon-start.lock';
 
@@ -611,7 +629,18 @@ export async function daemonStatus(options: LifecycleOptions = {}): Promise<Stat
     if (health.protocol !== PROTOCOL_VERSION || health.version !== version) {
         return { state: 'incompatible', pid: health.pid, version: health.version, protocol: health.protocol, expectedVersion: version };
     }
-    return { state: 'running', pid: health.pid, version: health.version, protocol: health.protocol, startedAt: readStartedAt(discoveryPath) };
+    return {
+        state: 'running',
+        pid: health.pid,
+        version: health.version,
+        protocol: health.protocol,
+        startedAt: readStartedAt(discoveryPath),
+        runtime: health.runtime,
+        uptimeSeconds: health.uptimeSeconds,
+        lastRenderMs: health.lastRenderMs,
+        activeRenders: health.activeRenders,
+        counters: health.counters
+    };
 }
 
 function readStartedAt(discoveryPath: string): string | undefined {
@@ -624,9 +653,35 @@ function readStartedAt(discoveryPath: string): string | undefined {
 
 // ---------- CLI ----------
 
+/** Compact human uptime: 42s, 5m12s, 2h03m, 3d4h (#19 status UX). */
+function formatUptime(seconds: number): string {
+    if (seconds < 60) {
+        return `${seconds}s`;
+    }
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) {
+        return `${minutes}m${String(seconds % 60).padStart(2, '0')}s`;
+    }
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) {
+        return `${hours}h${String(minutes % 60).padStart(2, '0')}m`;
+    }
+    return `${Math.floor(hours / 24)}d${hours % 24}h`;
+}
+
+function formatCounters(counters: Record<string, number> | undefined): string {
+    if (!counters) {
+        return '';
+    }
+    const order = ['ok', 'deduped', 'render_failed', 'busy', 'unauthorized', 'bad_request'];
+    const names = [...order, ...Object.keys(counters).filter(name => !order.includes(name))];
+    const parts = names.filter(name => counters[name] !== undefined).map(name => `${name}=${counters[name]}`);
+    return parts.length > 0 ? `, renders ${parts.join(' ')}` : '';
+}
+
 /**
- * `ccstatusline daemon [start|stop|status|restart]` (#17). Bare `daemon`
- * stays the foreground server host from #16.
+ * `ccstatusline daemon [start|stop|status|restart|install|uninstall]` (#17,
+ * #19). Bare `daemon` stays the foreground server host from #16.
  */
 export async function runDaemonCommand(): Promise<void> {
     const daemonArgIndex = process.argv.indexOf('daemon');
@@ -661,7 +716,10 @@ export async function runDaemonCommand(): Promise<void> {
             const outcome = await daemonStatus();
             if (outcome.state === 'running') {
                 const started = outcome.startedAt ? `, started ${outcome.startedAt}` : '';
-                console.log(`daemon running (pid ${outcome.pid}, version ${outcome.version}, protocol ${outcome.protocol}${started})`);
+                const uptime = outcome.uptimeSeconds !== undefined ? `, uptime ${formatUptime(outcome.uptimeSeconds)}` : '';
+                const lastRender = outcome.lastRenderMs !== undefined && outcome.lastRenderMs !== null ? `, last render ${outcome.lastRenderMs}ms` : '';
+                const active = outcome.activeRenders !== undefined ? `, active ${outcome.activeRenders}` : '';
+                console.log(`daemon running (pid ${outcome.pid}, version ${outcome.version}, protocol ${outcome.protocol}${uptime}${started}${lastRender}${active}${formatCounters(outcome.counters)})`);
                 return;
             }
             if (outcome.state === 'stopped') {
@@ -680,7 +738,60 @@ export async function runDaemonCommand(): Promise<void> {
             console.log(`daemon restarted (${stoppedPart}now pid ${outcome.pid}, version ${outcome.version})`);
             return;
         }
-        console.error(`unknown daemon subcommand '${subcommand}'; usage: ccstatusline daemon [start|stop|status|restart]`);
+        if (subcommand === 'install') {
+            // Explicit opt-in (#19): switching the status line to the shared
+            // IPC client happens only here — never from the render path. The
+            // daemon itself is started on purpose, after the wrapper command
+            // is recorded.
+            const { disableSharedMode, enableSharedMode } = await import('../utils/claude-settings');
+            const enabled = await enableSharedMode();
+            if (!enabled.statusLineWritten && enabled.reason !== 'shared mode is already active') {
+                console.error(`ccstatusline daemon install: ${enabled.reason}`);
+                process.exit(1);
+            }
+            let outcome;
+            try {
+                outcome = await ensureDaemon();
+            } catch (error) {
+                // The status line already points at the wrapper and is dark
+                // until a daemon runs: when this run did the switch, roll it
+                // back so the user is not stranded on a dead status line. If
+                // shared mode was already active, keep it (a rollback would
+                // erase the remembered one-shot command) and say what failed.
+                if (enabled.statusLineWritten) {
+                    const rolledBack = await disableSharedMode();
+                    const rollbackPart = rolledBack.statusLineRestored ? 'one-shot status line restored; ' : '';
+                    throw new Error(`${error instanceof Error ? error.message : String(error)} (${rollbackPart}the status line was not switched; run 'ccstatusline daemon start' to try again)`, { cause: error });
+                }
+                throw new Error(`${error instanceof Error ? error.message : String(error)} (the status line still points at the shared-mode client; run 'ccstatusline daemon start' or 'daemon uninstall')`, { cause: error });
+            }
+            const wrapperPart = enabled.wrapperPath ? `\n  statusLine command: sh ${enabled.wrapperPath}` : '';
+            console.log(`shared mode on${wrapperPart}\ndaemon ${outcome.state === 'already-running' ? 'already running' : outcome.state} (pid ${outcome.pid}, version ${outcome.version})`);
+            return;
+        }
+        if (subcommand === 'uninstall') {
+            const { disableSharedMode } = await import('../utils/claude-settings');
+            const disabled = await disableSharedMode();
+            // The daemon only goes down when the restore actually happened:
+            // stopping it on a refusal would darken a status line that still
+            // points at the wrapper.
+            const stopped = disabled.statusLineRestored ? await stopDaemon() : null;
+            if (disabled.statusLineRestored) {
+                console.log('shared mode off; one-shot status line restored');
+            } else if (disabled.reason === 'shared mode was not enabled') {
+                console.log(`shared mode off (nothing to restore: ${disabled.reason})`);
+            } else {
+                console.error(`ccstatusline daemon uninstall: ${disabled.reason}; the status line still points at the shared-mode client`);
+                process.exit(1);
+            }
+            if (stopped?.state === 'stopped') {
+                console.log(`daemon stopped (pid ${stopped.pid})`);
+            } else if (stopped?.detail) {
+                console.log(`daemon not running (${stopped.detail})`);
+            }
+            return;
+        }
+        console.error(`unknown daemon subcommand '${subcommand}'; usage: ccstatusline daemon [start|stop|status|restart|install|uninstall]`);
         process.exit(1);
     } catch (error) {
         console.error(`ccstatusline daemon ${subcommand}: ${error instanceof Error ? error.message : String(error)}`);
