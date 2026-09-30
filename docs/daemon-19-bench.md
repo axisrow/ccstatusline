@@ -31,9 +31,7 @@ render and its children (git etc.).
 | s50-warm-large-large | 300 | 64.7237 | 215.746 | 413.895 | 3060.1→3922.5 | 1526.73 | 1872.9 | 2092.51 | 1 |
 | s50-shared-warm-large-large | 300 | 14.0298 | 46.766 | 159.901 | 454.5→634.3 | 362.11 | 2272.7 | 3896.3 | 1 |
 | s50-warm-small-slow | 300 | 75.1512 | 250.504 | 355.694 | 3881.9→5754.0 | 1969.11 | 2636.41 | 2755.31 | 1 |
-| s50-shared-warm-small-slow | FAILED |  for _ in range(n)]
-            ^^^^^^^^^^^^^^^^^^^
-  File "/Users/axisrow/.ao/data/worktrees/ccstatusline/ccstatusline- |
+| s50-shared-warm-small-slow | FAILED | ` for _ in range(n)] ^^^^^^^^^^^^^^^^^^^ File "/Users/axisrow/.ao/data/worktrees/ccstatusline/ccstatusline-` |
 | s50-daemon-recovery-small | 50 | 2.9105 | 58.211 | 94.664 | 101.9→116.0 | 108.77 | 138.34 | 161.21 | 0 |
 
 ## One-shot vs shared comparison

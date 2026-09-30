@@ -19,7 +19,7 @@ for both sides; output hash of every render recorded.
 |---|---|---|---|
 | Aggregate-CPU reduction, warmed 36-session workload, daemon + clients | ≥50% | 180.0 → 34.7 ms CPU/render = **80.7%** (38.88 → 7.50 CPU-s total) | **PASS** |
 | Output equality one-shot vs shared | 1 distinct hash per scenario | hashes=1 in every passing scenario; comparison rows all `output_hashes_equal=true` | **PASS** |
-| Recovery (SIGKILL, dead-daemon wave, restart) | fail clean, byte-identical re-render | 52/52 clients failed rc≠0 with empty stdout; restart ready; 0 output mismatches; recovery gate PASS | **PASS** |
+| Recovery (SIGKILL, dead-daemon wave, restart) | fail clean, byte-identical re-render | 50/50 clients failed rc≠0 with empty stdout; restart ready; 0 output mismatches; recovery gate PASS | **PASS** |
 | Opt-in with tested return to one-shot | both directions tested | `daemon-shared-mode.test.ts`: enable/disable round-trip, verbatim restore, idempotent enable, refusals (corrupt config, Windows) | **PASS** |
 
 Warm table (CPU ms/render; full p50/p95/p99 and RSS in the JSON):

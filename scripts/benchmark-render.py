@@ -673,7 +673,7 @@ def write_daemon_summary(out_dir, doc):
     lines.append('|---|---|---|---|---|---|---|---|---|---|')
     for r in doc['runs']:
         if r.get('error'):
-            lines.append('| %s | FAILED | %s |' % (r['label'], r['error'][:120].replace('|', '\\|')))
+            lines.append('| %s | FAILED | %s |' % (r['label'], r['error'][:120].replace('\n', ' ').replace('|', '\\|')))
             continue
         lat = r['latency_ms']
         lines.append('| %s | %d | %s | %s | %s | %s→%s | %s | %s | %s | %s |' % (
