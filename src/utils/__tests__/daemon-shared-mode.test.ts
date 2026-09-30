@@ -118,6 +118,18 @@ describe('enableSharedMode', () => {
         expect(readClaudeSettingsRaw()).toBe('{ not json');
     });
 
+    it('refuses when ccstatusline settings are unreadable and writes nothing', async () => {
+        // loadSettings hands back in-memory defaults for a corrupt file; a
+        // naive save would rewrite the user's settings.json with defaults
+        // plus the shared-mode marker (#19 review). Refuse instead.
+        fs.writeFileSync(config.getConfigPath(), '{ not json', 'utf-8');
+        const result = await enableSharedMode();
+        expect(result.statusLineWritten).toBe(false);
+        expect(result.reason).toContain('refusing to modify');
+        expect(fs.readFileSync(config.getConfigPath(), 'utf-8')).toBe('{ not json');
+        expect(fs.existsSync(path.join(testClaudeConfigDir, 'settings.json'))).toBe(false);
+    });
+
     function readClaudeSettingsRaw(): string {
         return fs.readFileSync(path.join(testClaudeConfigDir, 'settings.json'), 'utf-8');
     }
@@ -175,5 +187,15 @@ describe('disableSharedMode', () => {
         const result = await disableSharedMode();
         expect(result.statusLineRestored).toBe(false);
         expect(result.reason).toContain('not enabled');
+    });
+
+    it('refuses when ccstatusline settings are unreadable instead of misreporting not-enabled', async () => {
+        await enableSharedMode();
+        fs.writeFileSync(config.getConfigPath(), '{ not json', 'utf-8');
+        const result = await disableSharedMode();
+        expect(result.statusLineRestored).toBe(false);
+        expect(result.reason).toContain('refusing to modify');
+        // The Claude status line still holds the wrapper: nothing was touched.
+        expect((await getExistingStatusLine()) ?? '').toContain('ccstatusline-ipc');
     });
 });

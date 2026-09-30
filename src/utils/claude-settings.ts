@@ -16,7 +16,7 @@ import {
 import {
     getConfigPath,
     isCustomConfigPath,
-    loadSettings,
+    loadSettingsFrom,
     saveInstallationMetadata,
     saveSettings
 } from './config';
@@ -598,7 +598,14 @@ export async function enableSharedMode(): Promise<SharedModeResult> {
         return { statusLineWritten: false, wrapperPath, reason: 'shared mode is already active' };
     }
 
-    const configSettings = await loadSettings();
+    // Refuse on a rejected config: loadSettingsFrom hands back in-memory
+    // defaults for an unreadable file, and saving those would silently
+    // overwrite the user's settings.json — same refusal class as the
+    // Claude-settings check above.
+    const { settings: configSettings, loadError } = await loadSettingsFrom(getConfigPath());
+    if (loadError !== null) {
+        return { statusLineWritten: false, wrapperPath, reason: `could not read ccstatusline settings (${loadError}); refusing to modify` };
+    }
     configSettings.daemonSharedMode = { previousStatusLine: claude.statusLine ?? null };
     await saveSettings(configSettings);
 
@@ -609,7 +616,7 @@ export async function enableSharedMode(): Promise<SharedModeResult> {
 }
 
 export interface SharedModeDisableResult {
-    /** False when shared mode was not enabled (or Claude settings are unreadable). */
+    /** False when shared mode was not enabled or a settings file was refused. */
     statusLineRestored: boolean;
     reason?: string;
 }
@@ -620,7 +627,13 @@ export interface SharedModeDisableResult {
  * shared mode was never enabled through this tool.
  */
 export async function disableSharedMode(): Promise<SharedModeDisableResult> {
-    const configSettings = await loadSettings();
+    // A rejected config must refuse here too: defaults would carry no
+    // daemonSharedMode marker, and acting on that would misreport "not
+    // enabled" while the wrapper command is still installed.
+    const { settings: configSettings, loadError } = await loadSettingsFrom(getConfigPath());
+    if (loadError !== null) {
+        return { statusLineRestored: false, reason: `could not read ccstatusline settings (${loadError}); refusing to modify` };
+    }
     const remembered = configSettings.daemonSharedMode;
     if (!remembered) {
         return { statusLineRestored: false, reason: 'shared mode was not enabled' };
@@ -639,9 +652,13 @@ export async function disableSharedMode(): Promise<SharedModeDisableResult> {
     } else {
         claude.statusLine = { ...previous };
     }
+    // Restore the status line BEFORE clearing the memory: if the restore
+    // write fails, the marker survives and a retry of `daemon uninstall`
+    // can still complete. The reverse order could strand the wrapper
+    // command with the memory already gone.
+    await saveClaudeSettings(claude);
     const { daemonSharedMode, ...rest } = configSettings;
     await saveSettings(rest);
-    await saveClaudeSettings(claude);
     return { statusLineRestored: true };
 }
 

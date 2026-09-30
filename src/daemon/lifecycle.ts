@@ -743,13 +743,28 @@ export async function runDaemonCommand(): Promise<void> {
             // IPC client happens only here — never from the render path. The
             // daemon itself is started on purpose, after the wrapper command
             // is recorded.
-            const { enableSharedMode } = await import('../utils/claude-settings');
+            const { disableSharedMode, enableSharedMode } = await import('../utils/claude-settings');
             const enabled = await enableSharedMode();
             if (!enabled.statusLineWritten && enabled.reason !== 'shared mode is already active') {
                 console.error(`ccstatusline daemon install: ${enabled.reason}`);
                 process.exit(1);
             }
-            const outcome = await ensureDaemon();
+            let outcome;
+            try {
+                outcome = await ensureDaemon();
+            } catch (error) {
+                // The status line already points at the wrapper and is dark
+                // until a daemon runs: when this run did the switch, roll it
+                // back so the user is not stranded on a dead status line. If
+                // shared mode was already active, keep it (a rollback would
+                // erase the remembered one-shot command) and say what failed.
+                if (enabled.statusLineWritten) {
+                    const rolledBack = await disableSharedMode();
+                    const rollbackPart = rolledBack.statusLineRestored ? 'one-shot status line restored; ' : '';
+                    throw new Error(`${error instanceof Error ? error.message : String(error)} (${rollbackPart}the status line was not switched; run 'ccstatusline daemon start' to try again)`, { cause: error });
+                }
+                throw new Error(`${error instanceof Error ? error.message : String(error)} (the status line still points at the shared-mode client; run 'ccstatusline daemon start' or 'daemon uninstall')`, { cause: error });
+            }
             const wrapperPart = enabled.wrapperPath ? `\n  statusLine command: sh ${enabled.wrapperPath}` : '';
             console.log(`shared mode on${wrapperPart}\ndaemon ${outcome.state === 'already-running' ? 'already running' : outcome.state} (pid ${outcome.pid}, version ${outcome.version})`);
             return;
@@ -757,15 +772,21 @@ export async function runDaemonCommand(): Promise<void> {
         if (subcommand === 'uninstall') {
             const { disableSharedMode } = await import('../utils/claude-settings');
             const disabled = await disableSharedMode();
-            const stopped = await stopDaemon();
-            if (!disabled.statusLineRestored && disabled.reason !== undefined) {
+            // The daemon only goes down when the restore actually happened:
+            // stopping it on a refusal would darken a status line that still
+            // points at the wrapper.
+            const stopped = disabled.statusLineRestored ? await stopDaemon() : null;
+            if (disabled.statusLineRestored) {
+                console.log('shared mode off; one-shot status line restored');
+            } else if (disabled.reason === 'shared mode was not enabled') {
                 console.log(`shared mode off (nothing to restore: ${disabled.reason})`);
             } else {
-                console.log('shared mode off; one-shot status line restored');
+                console.error(`ccstatusline daemon uninstall: ${disabled.reason}; the status line still points at the shared-mode client`);
+                process.exit(1);
             }
-            if (stopped.state === 'stopped') {
+            if (stopped?.state === 'stopped') {
                 console.log(`daemon stopped (pid ${stopped.pid})`);
-            } else if (stopped.detail) {
+            } else if (stopped?.detail) {
                 console.log(`daemon not running (${stopped.detail})`);
             }
             return;
