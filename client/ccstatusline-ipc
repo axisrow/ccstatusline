@@ -116,11 +116,19 @@ CONFIG
     [ "$curl_rc" -eq 0 ] && break
     attempt=$((attempt + 1))
     # 503 busy: the render queue is momentarily full (a burst of repaints
-    # across sessions). Back off briefly and retry — the same thing the next
-    # Claude Code repaint tick would do. Any other failure (dead daemon, bad
-    # request, render error) fails fast so stdout stays empty.
-    if [ "$curl_rc" -eq 22 ] && [ "$code" = "503" ] && [ "$attempt" -lt 8 ]; then
-        sleep 0.05
+    # across sessions). Back off on a growing ladder — 8s total budget — so
+    # even a cold burst of dozens of large renders waits out the queue, the
+    # same thing the next Claude Code repaint tick would do. Any other
+    # failure (dead daemon, bad request, render error) fails fast so stdout
+    # stays empty.
+    if [ "$curl_rc" -eq 22 ] && [ "$code" = "503" ] && [ "$attempt" -lt 14 ]; then
+        case $attempt in
+            1 | 2) sleep 0.05 ;;
+            3 | 4) sleep 0.1 ;;
+            5 | 6) sleep 0.25 ;;
+            7 | 8) sleep 0.5 ;;
+            *) sleep 1 ;;
+        esac
         continue
     fi
     die "daemon request failed (curl exit $curl_rc)"
