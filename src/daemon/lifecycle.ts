@@ -549,7 +549,7 @@ export async function ensureDaemon(options: LifecycleOptions = {}): Promise<Ensu
 
 /**
  * Spawn the daemon host detached so it outlives this process. The child is
- * this same entry in `daemon` mode; the config path is passed explicitly so
+ * this same entry in `daemon serve` mode; the config path is passed explicitly so
  * a custom --config on the parent survives the splice in main().
  */
 function spawnDetachedDaemon(options: LifecycleOptions): SpawnedDaemon | undefined {
@@ -562,7 +562,7 @@ function spawnDetachedDaemon(options: LifecycleOptions): SpawnedDaemon | undefin
     }
     const child: ChildProcess = spawn(
         process.execPath,
-        [entry, '--config', getConfigPath(), 'daemon'],
+        [entry, '--config', getConfigPath(), 'daemon', 'serve'],
         { detached: true, stdio: 'ignore' }
     );
     child.unref();
@@ -681,13 +681,19 @@ function formatCounters(counters: Record<string, number> | undefined): string {
 
 /**
  * `ccstatusline daemon [start|stop|status|restart|install|uninstall]` (#17,
- * #19). Bare `daemon` stays the foreground server host from #16.
+ * #19). Bare `daemon` prints usage; `daemon serve` is the foreground server
+ * host from #16 (spawned detached by `daemon start`).
  */
 export async function runDaemonCommand(): Promise<void> {
     const daemonArgIndex = process.argv.indexOf('daemon');
     const subcommand = process.argv[daemonArgIndex + 1] ?? '';
 
     if (subcommand === '') {
+        console.error('usage: ccstatusline daemon [start|stop|status|restart|install|uninstall]');
+        process.exit(1);
+    }
+
+    if (subcommand === 'serve') {
         const { runDaemonServer } = await import('./server');
         await runDaemonServer();
         return;
