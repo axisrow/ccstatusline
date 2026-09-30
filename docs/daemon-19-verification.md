@@ -76,6 +76,14 @@ pair at 50 sessions is the only failing row).
 ## Verification summary
 
 - Harness: `python3 scripts/benchmark-render.py --self-test` → PASS.
+- Live CLI verification (isolated fake `CLAUDE_CONFIG_DIR`/`XDG_CONFIG_HOME`,
+  real dist build): 19/19 — a piped render starts no daemon; `daemon install`
+  switches the statusLine, remembers the previous command and starts the
+  daemon; `daemon status` reports identity/uptime/counters and leaks no
+  token; the wrapper renders through the daemon; after `daemon stop` the
+  wrapper fails clean (rc=1, empty stdout, no auto-start); `daemon uninstall`
+  restores the one-shot command verbatim and stays off; a second uninstall is
+  an honest no-op.
 - Final run: 21 scenarios, 20 passed, 1 failed as documented above (the run
   exits 1 — the failure is kept visible in the JSON/MD, not masked).
 - `bun test`: 2732 passed / 0 failed (single full run at the end).
