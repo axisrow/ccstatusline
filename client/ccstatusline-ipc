@@ -85,7 +85,13 @@ context=$(
 # token still travels only through the curl config on stdin.
 payload_tmp=$(mktemp "${TMPDIR:-/tmp}/ccstatusline-ipc-payload.XXXXXX") || die "cannot buffer stdin"
 body_tmp=$(mktemp "${TMPDIR:-/tmp}/ccstatusline-ipc-body.XXXXXX") || { rm -f "$payload_tmp"; die "cannot create temp file"; }
-trap 'rm -f "$payload_tmp" "$body_tmp"' EXIT HUP INT TERM
+cleanup() { rm -f "$payload_tmp" "$body_tmp"; }
+trap cleanup EXIT
+# Signal exits must not resume the retry loop (a handler without exit would
+# return into the backoff sleep); the EXIT trap still removes the temp files.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 cat > "$payload_tmp"
 
 attempt=0
