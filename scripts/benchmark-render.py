@@ -613,6 +613,22 @@ def cmd_daemon_bench(args):
         'passed': (cpu_reduction_pct(gate_one, gate_shared) or -999) >= 50,
     }
     recovery = find('s%d-daemon-recovery-small' % big)
+    # The recovery scenario is a proof, not telemetry: its invariants gate the
+    # run like any other acceptance check. clients_that_still_succeeded > 0 or
+    # a non-empty stdout on the dead-daemon wave means the isolation contract
+    # is broken; any output mismatch after restart means rendering changed.
+    recovery_gate = {
+        'target': 'every client fails clean (rc!=0, empty stdout) against the dead daemon; all sessions re-render byte-identically after restart',
+        'clients_that_still_succeeded': recovery.get('recovery', {}).get('clients_that_still_succeeded') if recovery else None,
+        'failed_clients_stdout_empty': recovery.get('recovery', {}).get('failed_clients_stdout_empty') if recovery else None,
+        'output_mismatches': recovery.get('recovery', {}).get('output_mismatches') if recovery else None,
+    }
+    recovery_gate['passed'] = bool(
+        recovery and not recovery.get('error')
+        and recovery_gate['clients_that_still_succeeded'] == 0
+        and recovery_gate['failed_clients_stdout_empty'] is True
+        and recovery_gate['output_mismatches'] == []
+    )
 
     meta = {
         'runtime': args.runtime, 'entry': str(pathlib.Path(args.entry).resolve()), 'ccsl_fork': True,
@@ -629,10 +645,13 @@ def cmd_daemon_bench(args):
             'Runs were rejected/waited while system loadavg1 exceeded %s (gate recorded above); concurrent sibling sessions still add noise.' % max_load,
         ],
     }
-    doc = {'meta': meta, 'runs': runs, 'comparisons': comparisons, 'gate': gate, 'recovery': recovery}
+    doc = {'meta': meta, 'runs': runs, 'comparisons': comparisons, 'gate': gate, 'recovery': recovery, 'recovery_gate': recovery_gate}
     (out_dir / 'daemon-bench.json').write_text(json.dumps(doc, indent=2))
     write_daemon_summary(out_dir, doc)
-    failed = sum(1 for r in runs if r.get('error'))
+    failed = sum(1 for r in runs if r.get('error')) + (0 if recovery_gate['passed'] else 1)
+    print('[daemon-bench] recovery gate: passed=%s (still_succeeded=%s, stdout_empty=%s, mismatches=%s)' % (
+        recovery_gate['passed'], recovery_gate['clients_that_still_succeeded'],
+        recovery_gate['failed_clients_stdout_empty'], recovery_gate['output_mismatches']), flush=True)
     print('[daemon-bench] done: %d runs, %d failed. Gate (%s): %s%% reduction, passed=%s. Results: %s/daemon-bench.json, %s/DAEMON-BENCH.md' % (
         len(runs), failed, gate['scenario'], gate['reduction_pct'], gate['passed'], out_dir, out_dir), flush=True)
     return 1 if failed or not gate['passed'] else 0
@@ -690,6 +709,7 @@ def write_daemon_summary(out_dir, doc):
         lines.append('- failed clients left stdout empty (no partial status line): %s' % rec.get('failed_clients_stdout_empty'))
         lines.append('- daemon restart to ready: %s ms' % rec.get('restart_ready_ms'))
         lines.append('- sessions re-rendered after restart: %s, output mismatches vs warm wave: %s' % (rec.get('reverified'), rec.get('output_mismatches')))
+        lines.append('- gate: %s (violations fail the whole run)' % ('PASS' if doc.get('recovery_gate', {}).get('passed') else 'FAIL'))
         lines.append('')
 
     lines.append('## Notes and honesty')
