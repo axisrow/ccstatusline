@@ -475,9 +475,16 @@ ccstatusline daemon stop        # stop the daemon (status line goes quiet)
   was no status line before, `uninstall` removes ours again. The wrapper
   command is `sh <install>/client/ccstatusline-ipc`, POSIX `sh` + `curl`
   only — no Node on the repaint path.
-- If the daemon is down, the client fails with empty stdout and exit 1: the
-  status line goes quiet, nothing else breaks, and **no daemon is
-  auto-started**. Start it explicitly with `daemon start` (or `install`).
+- The lifecycle is on-demand (#53): with the daemon down, the shared-mode
+  client lazily starts one (`ccstatusline daemon start`, serialized by the
+  cold-start lock) and transparently retries the render into it; after
+  `daemonIdleStopMinutes` (settings.json, default 10, `0` disables) with zero
+  requests the daemon exits by itself. The first render after an idle period
+  pays the cold start; busy periods keep it alive. Set
+  `CCSTATUSLINE_NO_AUTOSTART=1` to make the client fail fast instead of
+  starting a daemon, or `CCSTATUSLINE_DAEMON_START="<command>"` to override
+  the lazy-start command — with autostart disabled that failure is empty
+  stdout and exit 1: the status line goes quiet, nothing else breaks.
 - `daemon status` prints what `/v1/health` exposes — protocol and build
   identity, pid, uptime, last render time, in-flight renders and aggregate
   request counters. It never prints the auth token. Exit code is 1 unless a

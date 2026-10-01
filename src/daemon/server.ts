@@ -70,6 +70,13 @@ export interface DaemonServerOptions {
     maxInFlightRenders?: number;
     /** Test seam (#17): reported build identity in health and the discovery file. */
     versionOverride?: string;
+    /**
+     * Idle auto-stop (#53): exit after this many milliseconds with zero
+     * requests (any request, health included, resets the clock). 0 disables.
+     */
+    idleStopMs?: number;
+    /** Called after the idle stop shut the server down (the host exits here). */
+    onIdleStop?: () => void;
 }
 
 export interface DaemonCounters {
@@ -144,6 +151,8 @@ interface RenderJob {
 // gives the memory back after quiet periods.
 const IDLE_SWEEP_INTERVAL_MS = 60_000;
 const IDLE_SWEEP_AFTER_MS = 5 * 60_000;
+/** Default idle auto-stop (#53): 10 minutes with zero requests. */
+export const DEFAULT_IDLE_STOP_MS = 10 * 60_000;
 
 function sweepProviderCaches(): void {
     clearGitCache();
@@ -170,15 +179,31 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServerHa
     const prefetchState: PrefetchState = createPrefetchState();
     const renderJobs = new Map<string, RenderJob>();
 
+    const idleStopMs = options.idleStopMs ?? DEFAULT_IDLE_STOP_MS;
+    // The sweep cadence adapts to a short idle bound so tests (and tiny
+    // configured values) do not wait a full minute for the first check.
+    const idleCheckIntervalMs = idleStopMs > 0
+        ? Math.min(IDLE_SWEEP_INTERVAL_MS, Math.max(100, Math.floor(idleStopMs / 5)))
+        : IDLE_SWEEP_INTERVAL_MS;
+    let idleStopPending = false;
     const idleSweeper = setInterval(() => {
-        if (Date.now() - lastActivityAt > IDLE_SWEEP_AFTER_MS && renderJobs.size === 0) {
+        const idleFor = Date.now() - lastActivityAt;
+        if (idleFor > IDLE_SWEEP_AFTER_MS && renderJobs.size === 0) {
             sweepProviderCaches();
             for (const cache of prefetchState.usageCaches.values()) {
                 cache.data = null;
                 cache.identity = undefined;
             }
         }
-    }, IDLE_SWEEP_INTERVAL_MS);
+        // Idle auto-stop (#53): zero requests for the whole window and no
+        // render in flight — the daemon takes itself down. Busy periods keep
+        // it alive for free: every request bumps lastActivityAt.
+        if (idleStopMs > 0 && !idleStopPending && idleFor > idleStopMs && renderJobs.size === 0) {
+            idleStopPending = true;
+            clearInterval(idleSweeper);
+            void stopServer().then(() => { options.onIdleStop?.(); });
+        }
+    }, idleCheckIntervalMs);
     idleSweeper.unref();
 
     /** Join an in-flight render for `key`, or start one. */
@@ -486,6 +511,40 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServerHa
         fs.renameSync(tempPath, discoveryPath);
     }
 
+    async function stopServer(): Promise<void> {
+        clearInterval(idleSweeper);
+        await new Promise<void>((resolve) => {
+            server.closeIdleConnections();
+            server.close(() => { resolve(); });
+        });
+        // Remove the endpoints only if this instance still owns them:
+        // prepareSocketPath lets a same-user daemon take over the socket
+        // path, and the takeover rewrites the discovery file in the same
+        // breath. A superseded instance shutting down must not delete the
+        // live one's socket or discovery. (Inode comparison is not an
+        // option: the freed inode is routinely reused by the new socket.)
+        let owned = false;
+        try {
+            owned = fs.readFileSync(discoveryPath, 'utf8').includes(`token=${token}\n`);
+        } catch {
+            // Gone already; nothing to clean up either way.
+        }
+        if (owned) {
+            for (const stalePath of [socketPath, discoveryPath]) {
+                try {
+                    fs.unlinkSync(stalePath);
+                } catch {
+                    // Already gone.
+                }
+            }
+        }
+        try {
+            fs.unlinkSync(`${discoveryPath}.${process.pid}.tmp`);
+        } catch {
+            // Already gone.
+        }
+    }
+
     return {
         socketPath,
         discoveryPath,
@@ -513,46 +572,13 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServerHa
             fs.chmodSync(socketPath, 0o600);
             writeDiscoveryFile();
         },
-        async stop(): Promise<void> {
-            clearInterval(idleSweeper);
-            await new Promise<void>((resolve) => {
-                server.closeIdleConnections();
-                server.close(() => { resolve(); });
-            });
-            // Remove the endpoints only if this instance still owns them:
-            // prepareSocketPath lets a same-user daemon take over the socket
-            // path, and the takeover rewrites the discovery file in the same
-            // breath. A superseded instance shutting down must not delete the
-            // live one's socket or discovery. (Inode comparison is not an
-            // option: the freed inode is routinely reused by the new socket.)
-            let owned = false;
-            try {
-                owned = fs.readFileSync(discoveryPath, 'utf8').includes(`token=${token}\n`);
-            } catch {
-                // Gone already; nothing to clean up either way.
-            }
-            if (owned) {
-                for (const stalePath of [socketPath, discoveryPath]) {
-                    try {
-                        fs.unlinkSync(stalePath);
-                    } catch {
-                        // Already gone.
-                    }
-                }
-            }
-            try {
-                fs.unlinkSync(`${discoveryPath}.${process.pid}.tmp`);
-            } catch {
-                // Already gone.
-            }
-        }
+        stop: stopServer
     };
 }
 
 /**
  * Daemon host entry (`ccstatusline daemon`, #16): starts the transport and
- * blocks until SIGINT/SIGTERM. Lifecycle (auto-start, respawn) is the
- * sibling issue's scope; this is the foreground server. The bearer token is
+ * blocks until SIGINT/SIGTERM or the idle auto-stop (#53). The bearer token is
  * never logged — it is shared only through the discovery file.
  */
 export async function runDaemonServer(): Promise<void> {
@@ -561,7 +587,16 @@ export async function runDaemonServer(): Promise<void> {
         process.exit(1);
     }
 
-    const daemon = createDaemonServer({ dependencies: createProcessDaemonDependencies() });
+    const daemon = createDaemonServer({
+        dependencies: createProcessDaemonDependencies(),
+        // Idle auto-stop (#53): the configured minutes with zero requests end
+        // the process; an unreadable config keeps the 10-minute default.
+        idleStopMs: (await loadSettingsFrom(getConfigPath())).settings.daemonIdleStopMinutes * 60_000,
+        onIdleStop: () => {
+            console.error('ccstatusline daemon: idle timeout reached, shutting down');
+            process.exit(0);
+        }
+    });
     try {
         await daemon.start();
     } catch (error) {

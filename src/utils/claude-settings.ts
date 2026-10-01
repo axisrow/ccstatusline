@@ -517,10 +517,11 @@ export async function getExistingStatusLine(): Promise<string | null> {
 // Daemon shared mode (#19): strictly opt-in switch of the Claude Code
 // statusLine command to the IPC client wrapper, with a tested return path.
 //
-// The wrapper (`client/ccstatusline-ipc`, shipped in the npm package) never
-// starts a daemon: with the daemon down it fails with empty stdout and the
-// status line simply does not render. Starting one is always an explicit
-// `ccstatusline daemon start|install` — nothing on the render path spawns it.
+// The wrapper (`client/ccstatusline-ipc`, shipped in the npm package) is the
+// only path that may start a daemon, and it runs exclusively in installed
+// shared mode (#53 on-demand lifecycle): with the daemon down it lazily runs
+// `daemon start` and retries into the fresh daemon. The one-shot render path
+// never spawns anything — opting in is still only `daemon install`.
 // ---------------------------------------------------------------------------
 
 /** Locate the shipped IPC client wrapper, or null when this install has none. */

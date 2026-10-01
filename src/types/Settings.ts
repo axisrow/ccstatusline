@@ -117,6 +117,10 @@ export const SettingsSchema = z.object({
         remaining: z.number().nullable().optional()
     }).optional(),
     installation: InstallationMetadataSchema.optional(),
+    // On-demand daemon lifecycle (#53): minutes with zero requests before the
+    // daemon exits by itself. 0 disables idle auto-stop. Additive key with a
+    // default, so configs written before it behave identically.
+    daemonIdleStopMinutes: z.number().min(0).max(1440).default(10),
     // Daemon shared mode (#19): present while the Claude Code statusLine
     // points at the IPC client wrapper. Remembers the exact previous statusLine
     // so returning to one-shot mode restores it verbatim; null previous means

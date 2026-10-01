@@ -15,6 +15,14 @@
 #   CCSTATUSLINE_RUNTIME_DIR        override the daemon runtime directory
 #   CCSTATUSLINE_IPC_CONNECT_TIMEOUT  seconds to connect (default 2)
 #   CCSTATUSLINE_IPC_TIMEOUT        total seconds (default 10)
+#   CCSTATUSLINE_DAEMON_START      override the lazy-start command (see
+#                                  start_daemon below)
+#   CCSTATUSLINE_NO_AUTOSTART      when set, never start a daemon lazily
+#
+# On-demand lifecycle (#53): this wrapper runs only in installed shared mode
+# (`daemon install`), so its lazy start is opt-in by construction — one-shot
+# users never execute this file. On a missing daemon it starts one (`daemon
+# start`, serialized by the #47 cold-start lock) and retries into it.
 #
 # Exit status: 0 on a rendered status line, 1 on any failure (stdout empty).
 
@@ -38,21 +46,57 @@ else
 fi
 discovery=$runtime_dir/daemon.env
 
-[ -r "$discovery" ] || die "no readable discovery file at $discovery; is the daemon running?"
-
 # Endpoint discovery: flat KEY=VALUE lines written by the daemon. Prefix
 # matching keeps values (socket paths may contain '=') intact.
-protocol=''
-socket=''
-token=''
-while IFS= read -r line || [ -n "$line" ]; do
-    case $line in
-        '#'*) continue ;;
-        protocol=*) protocol=${line#protocol=} ;;
-        socket=*) socket=${line#socket=} ;;
-        token=*) token=${line#token=} ;;
-    esac
-done < "$discovery"
+read_discovery() {
+    protocol=''
+    socket=''
+    token=''
+    [ -r "$discovery" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        case $line in
+            '#'*) continue ;;
+            protocol=*) protocol=${line#protocol=} ;;
+            socket=*) socket=${line#socket=} ;;
+            token=*) token=${line#token=} ;;
+        esac
+    done < "$discovery"
+    return 0
+}
+
+# Lazy start (#53): run `ccstatusline daemon start` — the #47 cold-start lock
+# serializes concurrent starters onto one server, so racing clients each run
+# this and converge on the same daemon. Tried at most once per invocation,
+# bounded by the starter's own startup timeout. Opt out with
+# CCSTATUSLINE_NO_AUTOSTART; override the command with
+# CCSTATUSLINE_DAEMON_START (a full command line, split on whitespace).
+autostart_attempted=0
+start_daemon() {
+    [ -z "${CCSTATUSLINE_NO_AUTOSTART:-}" ] || return 1
+    [ "$autostart_attempted" -eq 0 ] || return 1
+    autostart_attempted=1
+    if [ -n "${CCSTATUSLINE_DAEMON_START:-}" ]; then
+        $CCSTATUSLINE_DAEMON_START >/dev/null 2>&1
+        return $?
+    fi
+    # Same install root as this wrapper: the npm package ships
+    # client/ccstatusline-ipc next to dist/ccstatusline.js (node), a dev
+    # checkout next to src/ccstatusline.ts (bun).
+    install_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd) || return 1
+    if [ -f "$install_root/dist/ccstatusline.js" ]; then
+        node "$install_root/dist/ccstatusline.js" daemon start >/dev/null 2>&1
+    elif [ -f "$install_root/src/ccstatusline.ts" ]; then
+        bun "$install_root/src/ccstatusline.ts" daemon start >/dev/null 2>&1
+    else
+        return 1
+    fi
+}
+
+if ! read_discovery; then
+    # No live daemon: start one on demand and re-read what it published.
+    start_daemon || die "no readable discovery file at $discovery; is the daemon running?"
+    read_discovery || die "lazy daemon start left no discovery file at $discovery"
+fi
 
 [ "$protocol" = "1" ] || die "unsupported daemon protocol '${protocol:-none}'; want 1"
 [ -n "$socket" ] || die "discovery file has no socket path"
@@ -114,6 +158,14 @@ CONFIG
     )
     curl_rc=$?
     [ "$curl_rc" -eq 0 ] && break
+    # Connect failure (curl exit 7): the daemon died after discovery was
+    # read. Transparently lazy-start a fresh one and retry into it — the
+    # autostart guard inside start_daemon bounds this to one restart.
+    if [ "$curl_rc" -eq 7 ]; then
+        if start_daemon && read_discovery && [ "$protocol" = "1" ]; then
+            continue
+        fi
+    fi
     attempt=$((attempt + 1))
     # 503 busy: the render queue is momentarily full (a burst of repaints
     # across sessions). Back off on a growing ladder — 8s total budget — so
