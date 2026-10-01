@@ -68,7 +68,7 @@ export interface StartedTestDaemon {
 
 export async function startTestDaemon(
     overrides: Partial<DaemonDependencies> = {},
-    options: { maxInFlightRenders?: number } = {}
+    options: { maxInFlightRenders?: number; idleStopMs?: number; onIdleStop?: () => void } = {}
 ): Promise<StartedTestDaemon> {
     const runtimeDir = makeTempRuntimeDir();
     const previousRuntimeDir = process.env.CCSTATUSLINE_RUNTIME_DIR;
@@ -76,7 +76,9 @@ export async function startTestDaemon(
     const dependencies = hermeticDependencies(overrides);
     const daemon = createDaemonServer({
         dependencies,
-        ...(options.maxInFlightRenders === undefined ? {} : { maxInFlightRenders: options.maxInFlightRenders })
+        ...(options.maxInFlightRenders === undefined ? {} : { maxInFlightRenders: options.maxInFlightRenders }),
+        ...(options.idleStopMs === undefined ? {} : { idleStopMs: options.idleStopMs }),
+        ...(options.onIdleStop === undefined ? {} : { onIdleStop: options.onIdleStop })
     });
     await daemon.start();
     return { daemon, dependencies, runtimeDir, previousRuntimeDir };
