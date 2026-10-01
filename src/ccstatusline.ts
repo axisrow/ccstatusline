@@ -160,7 +160,7 @@ async function main() {
     }
 
     // Daemon modes (#16 transport, #17 lifecycle): the foreground server host
-    // runs on a bare `daemon`; `daemon start|stop|status|restart` coordinate
+    // runs on `daemon serve`; `daemon start|stop|status|restart` coordinate
     // the shared background renderer. Checked before the TTY split like
     // --serve: the daemon is started detached, without a TTY and without a
     // piped payload. Imported lazily so the per-repaint render path never
