@@ -4,12 +4,11 @@ import {
 } from 'node:child_process';
 import {
     mkdirSync,
-    readdirSync,
     rmSync,
     statSync
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename } from 'node:path';
 import {
     afterEach,
     beforeEach,
@@ -36,30 +35,19 @@ const mockedExecSync = execSync as unknown as { mockImplementation: (impl: (comm
 const mockedExecFileSync = execFileSync as unknown as { mockImplementation: (impl: (file: string, args: string[]) => string) => void };
 
 describe('upstream 6aefa6b: powerline fonts download into a private temp folder', () => {
+    // Observation and cleanup track only the clone target the mock extracts
+    // from the installer's own execFileSync call: a shared tmpdir can hold
+    // leftovers from killed runs (or a real font install) that would poison a
+    // prefix scan and delete other accounts' directories.
     const observed: { name: string; mode: number }[] = [];
-
-    const observeFontDirs = (): void => {
-        for (const entry of readdirSync(tmpdir())) {
-            if (entry.startsWith('ccstatusline-powerline-fonts-')) {
-                observed.push({ name: entry, mode: statSync(join(tmpdir(), entry)).mode & 0o777 });
-            }
-        }
-    };
+    const cloneTargets: string[] = [];
 
     beforeEach(() => {
         observed.length = 0;
+        cloneTargets.length = 0;
+        mockedExecSync.mockImplementation(() => '');
         // git clone creates the target folder; the mock does the same so the
         // folder's name and permissions can be observed mid-install
-        mockedExecSync.mockImplementation((command: string) => {
-            if (command.startsWith('git clone')) {
-                const target = /"([^"]+)"$/.exec(command)?.[1];
-                if (target) {
-                    mkdirSync(target, { recursive: true });
-                }
-            }
-            observeFontDirs();
-            return '';
-        });
         mockedExecFileSync.mockImplementation((file: string, args: string[]) => {
             if (file === 'git' && args[0] === 'clone') {
                 const target = args.find(
@@ -67,18 +55,17 @@ describe('upstream 6aefa6b: powerline fonts download into a private temp folder'
                 );
                 if (target) {
                     mkdirSync(target, { recursive: true });
+                    cloneTargets.push(target);
+                    observed.push({ name: basename(target), mode: statSync(target).mode & 0o777 });
                 }
             }
-            observeFontDirs();
             return '';
         });
     });
 
     afterEach(() => {
-        for (const entry of readdirSync(tmpdir())) {
-            if (entry.startsWith('ccstatusline-powerline-fonts-')) {
-                rmSync(join(tmpdir(), entry), { recursive: true, force: true });
-            }
+        for (const target of cloneTargets) {
+            rmSync(target, { recursive: true, force: true });
         }
     });
 
