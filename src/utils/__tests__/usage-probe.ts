@@ -16,7 +16,7 @@ interface BunSpawnResult {
     stderr: Buffer;
 }
 
-interface BunRuntime { spawnSync(command: string[], options: { env: NodeJS.ProcessEnv; stdout: 'pipe'; stderr: 'pipe' }): BunSpawnResult }
+interface BunRuntime { spawnSync(command: string[], options: { env: NodeJS.ProcessEnv; stdout: 'pipe'; stderr: 'pipe'; timeout?: number }): BunSpawnResult }
 
 // Other suites mock node:child_process and that mock leaks across files under
 // the bun runner, so subprocesses are spawned through Bun.spawnSync there;
@@ -28,7 +28,8 @@ function runProcess(command: string, args: string[], options: { env: NodeJS.Proc
         const result = bun.spawnSync([command, ...args], {
             env: options.env,
             stdout: 'pipe',
-            stderr: 'pipe'
+            stderr: 'pipe',
+            ...(options.timeout !== undefined ? { timeout: options.timeout } : {})
         });
         if (result.exitCode !== 0) {
             throw new Error(`${command} ${args.join(' ')} failed: ${result.stderr.toString().slice(0, 400)}`);
