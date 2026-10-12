@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import {
     mkdirSync,
     mkdtempSync,
@@ -15,6 +15,43 @@ import {
     expect,
     it
 } from 'vitest';
+
+interface BunSpawnResult {
+    exitCode: number | null;
+    stdout: Buffer;
+    stderr: Buffer;
+}
+
+interface BunRuntime { spawnSync(command: string[], options: { env: NodeJS.ProcessEnv; stdout: 'pipe'; stderr: 'pipe' }): BunSpawnResult }
+
+// Other suites mock node:child_process and that mock leaks across files under
+// the bun runner (deterministically on Linux CI), so subprocesses are spawned
+// through Bun.spawnSync there; vitest/Node keeps test files isolated and takes
+// the real spawnSync.
+function runProcess(command: string, args: string[], options: { env?: NodeJS.ProcessEnv }): string {
+    const bun = (globalThis as { Bun?: BunRuntime }).Bun;
+
+    if (bun) {
+        const result = bun.spawnSync([command, ...args], {
+            env: options.env ?? process.env,
+            stdout: 'pipe',
+            stderr: 'pipe'
+        });
+        if (result.exitCode !== 0) {
+            throw new Error(`${command} ${args.join(' ')} failed: ${result.stderr.toString().slice(0, 400)}`);
+        }
+        return result.stdout.toString();
+    }
+
+    const result = spawnSync(command, args, { env: options.env, encoding: 'utf8' });
+    if (result.error !== undefined) {
+        throw result.error;
+    }
+    if (result.status !== 0) {
+        throw new Error(`${command} ${args.join(' ')} failed: ${result.stderr.slice(0, 400)}`);
+    }
+    return result.stdout;
+}
 
 // Upstream 75f07d6: the skills hook and the Skills widget build the log path
 // from the payload's session_id. An id containing `/` or `..` named a file
@@ -52,10 +89,7 @@ if (command === 'path') {
 function runProbe(command: string, argument: string): Record<string, unknown> {
     // node, not bun: node's os.homedir() honors HOME, keeping every cache
     // write inside the temp home
-    const output = execFileSync('node', [probeBundle, command, argument], {
-        encoding: 'utf8',
-        env: { ...process.env, HOME: probeHome, USERPROFILE: probeHome }
-    });
+    const output = runProcess('node', [probeBundle, command, argument], { env: { ...process.env, HOME: probeHome, USERPROFILE: probeHome } });
     return JSON.parse(output) as Record<string, unknown>;
 }
 
@@ -67,7 +101,7 @@ describe('upstream 75f07d6: the skills log stays inside the skills folder', () =
         const entry = path.join(workDir, 'probe-skills.mjs');
         writeFileSync(entry, probeSource);
         probeBundle = path.join(workDir, 'probe-skills.bundle.mjs');
-        execFileSync('bun', ['build', entry, '--outfile', probeBundle, '--target=node'], { stdio: 'pipe' });
+        runProcess('bun', ['build', entry, '--outfile', probeBundle, '--target=node'], { env: { ...process.env } });
     });
 
     afterEach(() => {
