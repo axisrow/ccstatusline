@@ -120,6 +120,27 @@ describe('renderer regular-mode theme', () => {
         expect(line).not.toContain(fg('hex:F8F8F2')); // both merged widgets share slot 0
     });
 
+    it('gives a merge blocked by a separator its own palette slot', () => {
+        const line = renderWidgets(themedSettings('dracula'), [
+            { id: '1', type: 'custom-text', customText: 'A', merge: true },
+            { id: '2', type: 'separator' },
+            { id: '3', type: 'custom-text', customText: 'B' }
+        ]);
+
+        expect(line).toContain(fg('hex:BD93F9'));
+        expect(line).toContain(fg('hex:F8F8F2')); // the separator ends the merge
+    });
+
+    it('inherits the theme color for separators when inheritSeparatorColors is on', () => {
+        const first: WidgetItem = { id: '1', type: 'custom-text', customText: 'A' };
+        const second: WidgetItem = { id: '3', type: 'custom-text', customText: 'B' };
+        const explicit = renderWidgets({ ...themedSettings('dracula'), inheritSeparatorColors: true }, [first, { id: '2', type: 'separator' }, second]);
+        const viaDefault = renderWidgets({ ...themedSettings('dracula'), inheritSeparatorColors: true, defaultSeparator: '|' }, [first, second]);
+
+        expect(explicit).toContain(`${fg('hex:BD93F9')} | `);
+        expect(viaDefault).toContain(`${fg('hex:BD93F9')} | `);
+    });
+
     it('leaves default colors when theme is absent, custom, or unknown', () => {
         const widgets: WidgetItem[] = [{ id: '1', type: 'custom-text', customText: 'A' }];
 

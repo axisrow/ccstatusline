@@ -100,6 +100,13 @@ describe('applyColors dim handling', () => {
         expect(applyParensDim('(a) mid (b)')).toBe(`${DIM}(a)${INTENSITY_RESET} mid ${DIM}(b)${INTENSITY_RESET}`);
     });
 
+    it('leaves parentheses inside a hyperlink URL alone', () => {
+        const url = 'https://github.com/acme/app/tree/fix(ui)';
+        const link = `\x1b]8;;${url}\x1b\\fix(ui)\x1b]8;;\x1b\\`;
+
+        expect(applyParensDim(link)).toBe(`\x1b]8;;${url}\x1b\\fix${DIM}(ui)${INTENSITY_RESET}\x1b]8;;\x1b\\`);
+    });
+
     it('preserves parens dim when applying a foreground gradient', () => {
         const line = applyColors('ctx (42%)', 'gradient:FF0000-0000FF', undefined, false, 'truecolor', 'parens');
         const dimIndex = line.indexOf(DIM);

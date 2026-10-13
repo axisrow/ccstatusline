@@ -255,6 +255,26 @@ describe('renderer separator collapse around empty widgets', () => {
         expect(out).toBe('AAAAA C...');
     });
 
+    it('drops a separator left dangling before a flex gap by an empty widget', () => {
+        const widgets: WidgetItem[] = [T('a'), SEP, T('hidden'), { id: 'flex', type: 'flex-separator' }, T('c')];
+        const settings = createSettings({ colorLevel: 0, flexMode: 'full' });
+        const context: RenderContext = { isPreview: false, terminalWidth: 26 };
+        const preRenderedWidgets = makePreRendered(widgets, { 0: 'A', 2: '', 4: 'C' });
+        const out = stripSgrCodes(renderStatusLine(widgets, settings, context, preRenderedWidgets, []));
+
+        expect(out).toBe(`A${' '.repeat(18)}C`);
+    });
+
+    it('keeps a separator configured directly before a flex separator', () => {
+        const widgets: WidgetItem[] = [T('a'), SEP, { id: 'flex', type: 'flex-separator' }, T('c')];
+        const settings = createSettings({ colorLevel: 0, flexMode: 'full' });
+        const context: RenderContext = { isPreview: false, terminalWidth: 26 };
+        const preRenderedWidgets = makePreRendered(widgets, { 0: 'A', 3: 'C' });
+        const out = stripSgrCodes(renderStatusLine(widgets, settings, context, preRenderedWidgets, []));
+
+        expect(out).toBe(`A | ${' '.repeat(15)}C`);
+    });
+
     it('does not borrow visible content across a flex separator', () => {
         const widgets: WidgetItem[] = [
             T('left'),

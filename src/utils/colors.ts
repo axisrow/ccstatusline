@@ -128,11 +128,24 @@ export function getChalkColor(colorName: string | undefined, colorLevel: 'ansi16
     }
 }
 
+// OSC sequences (hyperlinks) carry URLs, which may contain parentheses.
+const OSC_SEQUENCE_REGEX = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+
 // Dim each (...) span within the text. \x1b[22m clears bold along with dim,
 // so bold is re-asserted after each span when the surrounding text is bold.
+// OSC sequences pass through untouched: a style code inside a hyperlink URL
+// breaks the link and prints the rest of the URL as text.
 export function applyParensDim(text: string, bold?: boolean): string {
     const intensityReset = bold ? '\x1b[22;1m' : '\x1b[22m';
-    return text.replace(/\([^()]*\)/g, span => `\x1b[2m${span}${intensityReset}`);
+    const dimSpans = (segment: string): string => segment.replace(/\([^()]*\)/g, span => `\x1b[2m${span}${intensityReset}`);
+
+    let result = '';
+    let lastIndex = 0;
+    for (const match of text.matchAll(OSC_SEQUENCE_REGEX)) {
+        result += dimSpans(text.slice(lastIndex, match.index)) + match[0];
+        lastIndex = match.index + match[0].length;
+    }
+    return result + dimSpans(text.slice(lastIndex));
 }
 
 export function applyColors(
