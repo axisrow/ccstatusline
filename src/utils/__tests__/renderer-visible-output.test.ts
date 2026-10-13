@@ -4,7 +4,8 @@ import {
     beforeEach,
     describe,
     expect,
-    it
+    it,
+    vi
 } from 'vitest';
 
 import type { RenderContext } from '../../types/RenderContext';
@@ -13,6 +14,7 @@ import {
     type Settings
 } from '../../types/Settings';
 import type { WidgetItem } from '../../types/Widget';
+import { CustomCommandWidget } from '../../widgets/CustomCommand';
 import { stripSgrCodes } from '../ansi';
 import {
     getColorAnsiCode,
@@ -89,21 +91,27 @@ describe('regular-mode widgets that preserve their own colors', () => {
 });
 
 describe('widgets with no visible output', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
     it('treat color-only output as empty so their separators collapse', () => {
+        // What a script printing an empty variable in color, e.g.
+        // printf '\033[33m%s\033[0m' "$EMPTY", hands back
+        vi.spyOn(CustomCommandWidget.prototype, 'render').mockReturnValue('\x1b[33m\x1b[0m');
         const widgets: WidgetItem[] = [
             { id: 'a', type: 'custom-text', customText: 'A' },
             SEP,
-            { id: 'cmd', type: 'custom-command', commandPath: 'printf \'\\033[33m%s\\033[0m\' ""', preserveColors: true },
+            command('cmd'),
             SEP,
             { id: 'b', type: 'custom-text', customText: 'B' }
         ];
         const settings = createSettings({ colorLevel: 0 });
-        const commandContext: RenderContext = { ...context, data: { session_id: 'visible-output-test' } };
-        const preRenderedLine = preRenderAllWidgets([widgets], settings, commandContext)[0] ?? [];
+        const preRenderedLine = preRenderAllWidgets([widgets], settings, context)[0] ?? [];
 
         expect(preRenderedLine[2]?.plainLength).toBe(0);
         expect(preRenderedLine[2]?.content).toBe('');
-        expect(stripSgrCodes(renderStatusLine(widgets, settings, commandContext, preRenderedLine, []))).toBe('A | B');
+        expect(stripSgrCodes(renderStatusLine(widgets, settings, context, preRenderedLine, []))).toBe('A | B');
     });
 });
 
