@@ -120,6 +120,15 @@ describe('BlockResetTimerWidget', () => {
         expect(render(widget, { id: 'reset', type: 'reset-timer', metadata: { display: 'progress' } }, { usageData: {} })).toBe('Reset [Loading]');
     });
 
+    it('says the window has not started when usage loaded at zero with no reset time', () => {
+        const widget = new BlockResetTimerWidget();
+
+        mockResolveUsageWindowWithFallback.mockReturnValue(null);
+
+        expect(render(widget, { id: 'reset', type: 'reset-timer' }, { usageData: { sessionUsage: 0 } })).toBe('Reset: [Not started]');
+        expect(render(widget, { id: 'reset', type: 'reset-timer', rawValue: true }, { usageData: { sessionUsage: 0 } })).toBe('[Not started]');
+    });
+
     it('declares the no-data and zero hideable states', () => {
         expect(new BlockResetTimerWidget().getHideableStates().map(state => state.key)).toEqual(['no-data', 'zero']);
     });

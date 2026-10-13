@@ -69,6 +69,7 @@ const BAR_LABEL = 'Weekly Reset ';
 const WEEKLY_PREVIEW_DURATION_MS = 36.5 * 60 * 60 * 1000;
 const WEEKLY_RESET_PREVIEW_AT = '2026-03-15T08:30:00.000Z';
 const USAGE_TIMER_LOADING_MESSAGE = '[Loading]';
+const USAGE_TIMER_NOT_STARTED_MESSAGE = '[Not started]';
 
 function isWeeklyResetHoursOnly(item: WidgetItem): boolean {
     return isMetadataFlagEnabled(item, 'hours');
@@ -242,6 +243,12 @@ export class WeeklyResetTimerWidget implements Widget {
 
             if (usageData.error) {
                 return getUsageErrorMessage(usageData.error);
+            }
+
+            // Usage has loaded: a window with no usage yet has no reset time
+            // until its first request, so nothing is loading
+            if (usageData.weeklyUsage === 0) {
+                return formatRawOrLabeledValue(item, this.getLabelPrefix(item), USAGE_TIMER_NOT_STARTED_MESSAGE);
             }
 
             return formatRawOrLabeledValue(item, this.getLabelPrefix(item), USAGE_TIMER_LOADING_MESSAGE);

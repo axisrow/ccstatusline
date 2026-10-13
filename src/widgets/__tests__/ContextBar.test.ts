@@ -132,6 +132,35 @@ describe('ContextBarWidget', () => {
         expect(widget.render({ id: 'ctx', type: 'context-bar' }, context, DEFAULT_SETTINGS)).toBe('Context: [bar:100.0:16] 250k/200k (100%)');
     });
 
+    it('does not show 100% while tokens are still free', () => {
+        const context: RenderContext = {
+            data: {
+                context_window: {
+                    context_window_size: 200000,
+                    current_usage: {
+                        input_tokens: 3200,
+                        output_tokens: 0,
+                        cache_creation_input_tokens: 6000,
+                        cache_read_input_tokens: 190000
+                    }
+                }
+            }
+        };
+        const widget = new ContextBarWidget();
+
+        expect(widget.render({ id: 'ctx', type: 'context-bar' }, context, DEFAULT_SETTINGS)).toBe('Context: [bar:99.6:16] 199k/200k (99%)');
+    });
+
+    it('labels every bar mode in the editor', () => {
+        const widget = new ContextBarWidget();
+        const modifier = (display?: string): string | undefined => widget.getEditorDisplay({ id: 'ctx', type: 'context-bar', metadata: display ? { display } : undefined }).modifierText;
+
+        expect(modifier()).toBe('(medium bar)');
+        expect(modifier('progress')).toBe('(long bar)');
+        expect(modifier('slider')).toBe('(short bar)');
+        expect(modifier('slider-only')).toBe('(short bar only)');
+    });
+
     it('supports raw mode without context label', () => {
         const context: RenderContext = {
             data: {

@@ -42,6 +42,14 @@ const FORMATS = ['icon-space-number', 'text-and-number', 'number'] as const;
 type CompactionCounterFormat = typeof FORMATS[number];
 
 const DEFAULT_FORMAT: CompactionCounterFormat = 'icon-space-number';
+// Editor labels for the stored format values. 'icon-space-number' predates
+// dropping the space between icon and count (e48c036) and stays as the stored
+// value so existing configs keep working.
+const FORMAT_LABELS: Record<CompactionCounterFormat, string> = {
+    'icon-space-number': 'icon-and-number',
+    'text-and-number': 'text-and-number',
+    'number': 'number'
+};
 const TOGGLE_TRIGGERS_ACTION = 'toggle-triggers';
 const SHOW_TRIGGERS_METADATA_KEY = 'showTriggers';
 const TOGGLE_RECLAIMED_ACTION = 'toggle-reclaimed';
@@ -173,7 +181,7 @@ export class CompactionCounterWidget implements Widget {
         if (metric !== DEFAULT_METRIC) {
             modifiers.push(`${metric} value`);
         } else {
-            modifiers.push(getFormat(item, FORMAT_OPTIONS));
+            modifiers.push(FORMAT_LABELS[getFormat(item, FORMAT_OPTIONS)]);
             if (isNerdFontEnabled(item, FORMAT_OPTIONS)) {
                 modifiers.push('nerd font');
             }

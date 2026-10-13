@@ -60,6 +60,7 @@ const BAR_LABEL = 'Reset ';
 
 const BLOCK_RESET_PREVIEW_AT = '2026-03-12T08:30:00.000Z';
 const USAGE_TIMER_LOADING_MESSAGE = '[Loading]';
+const USAGE_TIMER_NOT_STARTED_MESSAGE = '[Not started]';
 
 export class BlockResetTimerWidget implements Widget {
     getDefaultColor(): string { return 'brightBlue'; }
@@ -158,6 +159,12 @@ export class BlockResetTimerWidget implements Widget {
 
             if (usageData.error) {
                 return getUsageErrorMessage(usageData.error);
+            }
+
+            // Usage has loaded: a window with no usage yet has no reset time
+            // until its first request, so nothing is loading
+            if (usageData.sessionUsage === 0) {
+                return formatRawOrLabeledValue(item, this.getLabelPrefix(item), USAGE_TIMER_NOT_STARTED_MESSAGE);
             }
 
             return formatRawOrLabeledValue(item, this.getLabelPrefix(item), USAGE_TIMER_LOADING_MESSAGE);

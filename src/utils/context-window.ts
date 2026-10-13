@@ -99,8 +99,10 @@ export function getContextWindowMetrics(data?: StatusJSON): ContextWindowMetrics
 
     const rawUsedPercentage = toFiniteNonNegativeNumber(contextWindow.used_percentage);
     const rawRemainingPercentage = toFiniteNonNegativeNumber(contextWindow.remaining_percentage);
+    // Rounded: a fractional percentage would otherwise surface as float noise
+    // such as "699.9999999999999" tokens
     const usedTokensFromPercentage = rawUsedPercentage !== null && windowSize !== null
-        ? (rawUsedPercentage / 100) * windowSize
+        ? Math.round((rawUsedPercentage / 100) * windowSize)
         : null;
 
     const usedTokens = currentUsageTotalTokens ?? usedTokensFromPercentage;
