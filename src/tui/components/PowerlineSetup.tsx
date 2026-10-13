@@ -8,6 +8,7 @@ import React, { useState } from 'react';
 
 import type { PowerlineConfig } from '../../types/PowerlineConfig';
 import type { Settings } from '../../types/Settings';
+import { getThemeDisplayName } from '../../utils/colors';
 import { getPlainInput } from '../../utils/input-guards';
 import { type PowerlineFontStatus } from '../../utils/powerline';
 import { buildEnabledPowerlineSettings } from '../../utils/powerline-settings';
@@ -100,7 +101,7 @@ export function getThemeDisplay(powerlineConfig: PowerlineConfig): string {
         return 'Custom';
     }
 
-    return theme.charAt(0).toUpperCase() + theme.slice(1);
+    return getThemeDisplayName(theme);
 }
 
 export function buildPowerlineSetupMenuItems(

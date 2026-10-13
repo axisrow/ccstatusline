@@ -79,15 +79,18 @@ describe('TerminalWidthMenu helpers', () => {
         const items = buildTerminalWidthItems('full-until-compact', 60);
 
         expect(items).toHaveLength(3);
+        // Full width always is the schema default (Settings flexMode)
         expect(items[0]).toMatchObject({
             label: 'Full width always',
+            sublabel: '(default)',
             value: 'full'
         });
+        expect(items[0]?.description).toContain('minus 6 characters');
         expect(items[1]).toMatchObject({
             label: 'Full width minus 40',
-            sublabel: '(default)',
             value: 'full-minus-40'
         });
+        expect(items[1]?.sublabel).toBeUndefined();
         expect(items[2]).toMatchObject({
             label: 'Full width until compact',
             sublabel: '(threshold 60%, active)',

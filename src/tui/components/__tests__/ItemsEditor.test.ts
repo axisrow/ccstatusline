@@ -11,6 +11,7 @@ import {
 
 import { DEFAULT_SETTINGS } from '../../../types/Settings';
 import type { WidgetItem } from '../../../types/Widget';
+import * as terminal from '../../../utils/terminal';
 import { waitFor } from '../../__tests__/helpers/wait-for-ink';
 import { ItemsEditor } from '../ItemsEditor';
 
@@ -464,6 +465,90 @@ describe('ItemsEditor', () => {
                 expect(lastFrame()).not.toContain('(merged→)');
             });
             expect(lastFrame()).not.toContain('(m)erge');
+        } finally {
+            instance.unmount();
+            instance.cleanup();
+            stdin.destroy();
+            stdout.destroy();
+            stderr.destroy();
+        }
+    });
+
+    it('stacks the two lines of the width-detection note instead of squeezing them side by side', async () => {
+        vi.spyOn(terminal, 'canDetectTerminalWidth').mockReturnValue(false);
+        const stdin = createMockStdin();
+        const stdout = createMockStdout();
+        const stderr = createMockStdout();
+        const instance = render(
+            React.createElement(StatefulItemsEditor, { initialWidgets: [{ id: '1', type: 'model' }, { id: '2', type: 'flex-separator' }] }),
+            {
+                stdin,
+                stdout,
+                stderr,
+                debug: true,
+                exitOnCtrlC: false,
+                patchConsole: false
+            }
+        );
+
+        try {
+            await flushInk();
+            const rows = stripAnsi(stdout.getOutput()).split('\n');
+
+            expect(rows).toContain('⚠ Note: Terminal width detection is currently unavailable in your environment.');
+            expect(rows).toContain('  Flex separators will act as normal separators until width detection is available.');
+        } finally {
+            vi.restoreAllMocks();
+            instance.unmount();
+            instance.cleanup();
+            stdin.destroy();
+            stdout.destroy();
+            stderr.destroy();
+        }
+    });
+
+    it('scrolls the "All" widget list instead of drawing every widget', async () => {
+        const stdin = createMockStdin();
+        const stdout = createMockStdout();
+        const stderr = createMockStdout();
+        const lastFrame = () => {
+            const output = stripAnsi(stdout.getOutput());
+            return output.slice(output.lastIndexOf('Edit Line 1'));
+        };
+        const instance = render(
+            React.createElement(StatefulItemsEditor, { initialWidgets: [{ id: '1', type: 'model' }] }),
+            {
+                stdin,
+                stdout,
+                stderr,
+                debug: true,
+                exitOnCtrlC: false,
+                patchConsole: false
+            }
+        );
+
+        try {
+            await waitFor(() => {
+                expect(lastFrame()).toContain('▶  1. Model');
+            });
+            stdin.write('a');
+            await waitFor(() => {
+                expect(lastFrame()).toContain('▶  1. All');
+            });
+            stdin.write('\r');
+            await waitFor(() => {
+                expect(lastFrame()).toMatch(/Showing 1-12 of \d+/);
+            });
+
+            const entryRows = lastFrame().split('\n').filter(row => /^\s*(?:▶\s+)?\d+\. /.test(row));
+            expect(entryRows).toHaveLength(12);
+            expect(entryRows[0]).toMatch(/^▶\s+1\. /);
+
+            stdin.write('\u001B[A');
+            await waitFor(() => {
+                expect(lastFrame()).toMatch(/Showing \d+-(\d+) of \1/);
+            });
+            expect(lastFrame().split('\n').filter(row => /^\s*(?:▶\s+)?\d+\. /.test(row))).toHaveLength(12);
         } finally {
             instance.unmount();
             instance.cleanup();

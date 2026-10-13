@@ -223,13 +223,15 @@ export function getMainMenuSelectionIndex(items: MainMenuEntry[], option: MainMe
 
 export function getMainMenuInstallSelectionIndex(
     isClaudeInstalled: boolean,
-    installation?: InstallationMetadata
+    installation?: InstallationMetadata,
+    powerlineEnabled = false
 ): number {
     const option = isClaudeInstalled && usesManageInstallation(installation)
         ? 'manageInstallation'
         : 'install';
 
-    return getMainMenuSelectionIndex(buildMainMenuItems(isClaudeInstalled, false, installation), option);
+    // Powerline hides the Theme entry, which shifts every later index
+    return getMainMenuSelectionIndex(buildMainMenuItems(isClaudeInstalled, false, installation, powerlineEnabled), option);
 }
 
 export const MainMenu: React.FC<MainMenuProps> = ({

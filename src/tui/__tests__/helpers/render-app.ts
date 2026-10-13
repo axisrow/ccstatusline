@@ -89,7 +89,7 @@ export function setUpAppSandbox(): AppSandbox {
     };
 }
 
-export function renderApp() {
+export function renderApp(props: { firstRun?: boolean } = {}) {
     const stdin = new MockTtyStream();
     const stdout = new MockTtyStream();
     const stderr = new MockTtyStream();
@@ -98,7 +98,7 @@ export function renderApp() {
         chunks.push(chunk.toString());
     });
 
-    const instance = render(React.createElement(App), {
+    const instance = render(React.createElement(App, props), {
         stdin: stdin as unknown as NodeJS.ReadStream,
         stdout: stdout as unknown as NodeJS.WriteStream,
         stderr: stderr as unknown as NodeJS.WriteStream,

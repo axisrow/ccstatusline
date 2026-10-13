@@ -60,6 +60,10 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
         if (widget.type === 'separator') {
             return showSeparators;
         }
+        // Flex separators render as plain spaces, so they have no colors
+        if (widget.type === 'flex-separator') {
+            return false;
+        }
         // Use the widget's supportsColors method
         const widgetInstance = getWidget(widget.type);
         // Include unknown widgets (they might support colors, we just don't know)
@@ -605,6 +609,7 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
                     {!settings.powerline.enabled && !settings.defaultSeparator && (
                         <Text dimColor>
                             (s)how separators:
+                            {' '}
                             {showSeparators ? chalk.green('ON') : chalk.gray('OFF')}
                         </Text>
                     )}

@@ -148,6 +148,10 @@ export const InstallMenu: React.FC<InstallMenuProps> = ({
 }) => {
     const [step, setStep] = useState<InstallStep>('style');
     const [updateStyle, setUpdateStyle] = useState<InstallUpdateStyle>('pinned');
+    const managerItems = getManagerItems(updateStyle, commandAvailability, currentVersion);
+    // initialPackageSelection is the entry's position (npm 0, bun 1), but List
+    // counts only enabled entries: with npm missing, 1 would land on "← Back"
+    const managerSelection = managerItems.slice(0, initialPackageSelection).filter(item => !item.disabled).length;
 
     useInput((_, key) => {
         if (key.escape) {
@@ -208,7 +212,7 @@ export const InstallMenu: React.FC<InstallMenuProps> = ({
                     <List
                         color='blue'
                         marginTop={1}
-                        items={getManagerItems(updateStyle, commandAvailability, currentVersion)}
+                        items={managerItems}
                         onSelect={(value) => {
                             if (value === 'back') {
                                 setStep('style');
@@ -217,7 +221,7 @@ export const InstallMenu: React.FC<InstallMenuProps> = ({
 
                             onSelect(buildSelection(updateStyle, value, currentVersion));
                         }}
-                        initialSelection={initialPackageSelection}
+                        initialSelection={managerSelection}
                         showBackButton={true}
                     />
                 </>

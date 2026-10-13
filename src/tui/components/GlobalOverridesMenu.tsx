@@ -466,7 +466,7 @@ export const GlobalOverridesMenu: React.FC<GlobalOverridesMenuProps> = ({ settin
                     </Box>
 
                     <Box>
-                        <Text>  Compact Labels: </Text>
+                        <Text>   Compact Labels: </Text>
                         <Text color={compactLabels ? 'green' : 'red'}>{compactLabels ? '✓ Enabled' : '✗ Disabled'}</Text>
                         <Text dimColor> - Press (j) to toggle</Text>
                     </Box>

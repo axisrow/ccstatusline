@@ -12,6 +12,7 @@ import React, {
 
 import type { Settings } from '../../types/Settings';
 import type { WidgetItem } from '../../types/Widget';
+import { getThemeDisplayName } from '../../utils/colors';
 import { getPlainInput } from '../../utils/input-guards';
 import { moveItem } from '../../utils/move-item';
 
@@ -155,9 +156,7 @@ const LineSelector: React.FC<LineSelectorProps> = ({
                 <Box marginTop={1}>
                     <Text color='yellow'>
                         ⚠ Colors are currently managed by the Powerline theme:
-                        {' '
-                            + managedTheme.charAt(0).toUpperCase()
-                            + managedTheme.slice(1)}
+                        {' ' + getThemeDisplayName(managedTheme)}
                     </Text>
                 </Box>
                 <Box marginTop={1}>
@@ -165,12 +164,12 @@ const LineSelector: React.FC<LineSelectorProps> = ({
                 </Box>
                 <Box marginLeft={2}>
                     <Text dimColor>
-                        • Change to 'Custom' theme in Powerline Configuration → Themes
+                        • Change to 'Custom' theme in Powerline Setup → Themes
                     </Text>
                 </Box>
                 <Box marginLeft={2}>
                     <Text dimColor>
-                        • Disable Powerline mode in Powerline Configuration
+                        • Disable Powerline mode in Powerline Setup
                     </Text>
                 </Box>
                 <Box marginTop={2}>
@@ -193,6 +192,7 @@ const LineSelector: React.FC<LineSelectorProps> = ({
                         <Text>
                             <Text>
                                 ☰ Line
+                                {' '}
                                 {selectedIndex + 1}
                             </Text>
                             {' '}

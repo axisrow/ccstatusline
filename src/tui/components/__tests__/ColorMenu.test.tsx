@@ -209,12 +209,12 @@ describe('ColorMenu', () => {
 
         try {
             await waitFor(() => {
-                expect(menu.latestFrame()).toContain('(s)how separators:OFF');
+                expect(menu.latestFrame()).toContain('(s)how separators: OFF');
             });
 
             menu.stdin.write('s');
             await waitFor(() => {
-                expect(menu.latestFrame()).toContain('(s)how separators:ON');
+                expect(menu.latestFrame()).toContain('(s)how separators: ON');
             });
             menu.stdin.write('\x1B[B');
             await waitFor(() => {
@@ -222,7 +222,7 @@ describe('ColorMenu', () => {
             });
             menu.stdin.write('s');
             await waitFor(() => {
-                expect(menu.latestFrame()).toContain('(s)how separators:OFF');
+                expect(menu.latestFrame()).toContain('(s)how separators: OFF');
             });
 
             expect(menu.latestFrame()).toContain('▶  1: Model');
@@ -233,6 +233,25 @@ describe('ColorMenu', () => {
                 expect(menu.onUpdate).toHaveBeenCalled();
             });
             expect(menu.onUpdate.mock.calls[0]?.[0]?.[0]).toMatchObject({ id: '1', bold: true });
+        } finally {
+            menu.cleanup();
+        }
+    });
+
+    it('does not offer flex separators, which have no colors', async () => {
+        const menu = renderColorMenu([
+            { id: '1', type: 'model' },
+            { id: '2', type: 'flex-separator' },
+            { id: '3', type: 'version' }
+        ]);
+
+        try {
+            await waitFor(() => {
+                expect(menu.latestFrame()).toContain('1: Model');
+            });
+
+            expect(menu.latestFrame()).toContain('2: Version');
+            expect(menu.latestFrame()).not.toContain('Flex Separator');
         } finally {
             menu.cleanup();
         }

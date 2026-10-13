@@ -517,6 +517,12 @@ export function getPowerlineTheme(name: string): PowerlineTheme | undefined {
     return POWERLINE_THEMES[name];
 }
 
+// The name the theme picker shows ("One Dark" for 'onedark'); unknown keys
+// fall back to the key with its first letter capitalized
+export function getThemeDisplayName(themeKey: string): string {
+    return getPowerlineTheme(themeKey)?.name ?? themeKey.charAt(0).toUpperCase() + themeKey.slice(1);
+}
+
 export function getDefaultPowerlineTheme(): string {
     return 'nord-aurora';
 }

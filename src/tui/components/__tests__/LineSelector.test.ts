@@ -352,8 +352,8 @@ describe('LineSelector', () => {
             await waitFor(() => {
                 expect(view.frame()).toContain('Are you sure you want to delete line?');
             });
-            // The dialog heading prints no space before the number ('☰ Line2')
-            expect(view.frame()).toMatch(/☰ Line ?2 \(empty\)/);
+            // The dialog heading matches the list: '☰ Line 2', not '☰ Line2'
+            expect(view.frame()).toContain('☰ Line 2 (empty)');
             expect(view.frame()).toMatch(/▶\s+Yes/);
             expect(view.frame()).toContain('No');
 
@@ -371,7 +371,7 @@ describe('LineSelector', () => {
             // Deleting the first line keeps the highlight on the first line
             view.press('d');
             await waitFor(() => {
-                expect(view.frame()).toMatch(/☰ Line ?1 \(1 widget\)/);
+                expect(view.frame()).toContain('☰ Line 1 (1 widget)');
             });
 
             view.press(ENTER);
@@ -599,8 +599,8 @@ describe('LineSelector', () => {
             const frame = view.frame();
             expect(frame.split('\n')[0]?.trim()).toBe('Select Line');
             expect(frame).toContain('⚠ Colors are currently managed by the Powerline theme: Nord');
-            expect(frame).toContain('• Change to \'Custom\' theme in Powerline Configuration → Themes');
-            expect(frame).toContain('• Disable Powerline mode in Powerline Configuration');
+            expect(frame).toContain('• Change to \'Custom\' theme in Powerline Setup → Themes');
+            expect(frame).toContain('• Disable Powerline mode in Powerline Setup');
             expect(view.rows()).toEqual([]);
 
             view.press('x');
