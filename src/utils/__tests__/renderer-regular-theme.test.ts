@@ -131,6 +131,18 @@ describe('renderer regular-mode theme', () => {
         expect(line).toContain(fg('hex:F8F8F2')); // the separator ends the merge
     });
 
+    it('keeps one palette slot when a merge glues across an empty widget and a dropped separator', () => {
+        const line = renderWidgets(themedSettings('dracula'), [
+            { id: '1', type: 'custom-text', customText: 'A', merge: true },
+            { id: '2', type: 'custom-text', customText: '' },
+            { id: '3', type: 'separator' },
+            { id: '4', type: 'custom-text', customText: 'C' }
+        ]);
+
+        expect(line).not.toContain(' | '); // the merge owns the boundary
+        expect(line).not.toContain(fg('hex:F8F8F2')); // A and C share slot 0
+    });
+
     it('inherits the theme color for separators when inheritSeparatorColors is on', () => {
         const first: WidgetItem = { id: '1', type: 'custom-text', customText: 'A' };
         const second: WidgetItem = { id: '3', type: 'custom-text', customText: 'B' };

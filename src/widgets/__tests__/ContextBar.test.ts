@@ -151,6 +151,22 @@ describe('ContextBarWidget', () => {
         expect(widget.render({ id: 'ctx', type: 'context-bar' }, context, DEFAULT_SETTINGS)).toBe('Context: [bar:99.6:16] 199k/200k (99%)');
     });
 
+    it('does not round the used count up to the total while tokens are still free', () => {
+        const context = (used: number, size: number): RenderContext => ({
+            data: {
+                context_window: {
+                    context_window_size: size,
+                    current_usage: { input_tokens: used, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }
+                }
+            }
+        });
+        const widget = new ContextBarWidget();
+
+        expect(widget.render({ id: 'ctx', type: 'context-bar' }, context(199600, 200000), DEFAULT_SETTINGS)).toBe('Context: [bar:99.8:16] 199.6k/200k (99%)');
+        expect(widget.render({ id: 'ctx', type: 'context-bar' }, context(999600, 1000000), DEFAULT_SETTINGS)).toBe('Context: [bar:100.0:16] 999.6k/1.0M (99%)');
+        expect(widget.render({ id: 'ctx', type: 'context-bar' }, context(200000, 200000), DEFAULT_SETTINGS)).toBe('Context: [bar:100.0:16] 200k/200k (100%)');
+    });
+
     it('labels every bar mode in the editor', () => {
         const widget = new ContextBarWidget();
         const modifier = (display?: string): string | undefined => widget.getEditorDisplay({ id: 'ctx', type: 'context-bar', metadata: display ? { display } : undefined }).modifierText;

@@ -95,6 +95,37 @@ describe('App navigation keeps the highlight on the item you left', () => {
         }
     });
 
+    it('keeps the highlight on the line above a deleted one that was not the remembered line', async () => {
+        fs.writeFileSync(sandbox.settingsPath, JSON.stringify({
+            ...DEFAULT_SETTINGS,
+            lines: [
+                [{ id: 'a', type: 'model' }],
+                [{ id: 'b', type: 'model' }, { id: 'b2', type: 'model' }],
+                [{ id: 'c', type: 'model' }, { id: 'c2', type: 'model' }, { id: 'c3', type: 'model' }]
+            ]
+        }));
+        const rendered = renderApp();
+
+        try {
+            await waitFor(() => {
+                expect(rendered.getFrame()).toContain('Main Menu');
+            });
+            await pressKey(rendered, KEYS.enter, '☰ Line 3');
+            await pressKey(rendered, KEYS.down, '▶  ☰ Line 2');
+            await pressKey(rendered, KEYS.down, '▶  ☰ Line 3');
+            await pressKey(rendered, KEYS.enter, 'Edit Line 3');
+            await pressKey(rendered, KEYS.escape, '▶  ☰ Line 3');
+            await pressKey(rendered, KEYS.up, '▶  ☰ Line 2');
+            await pressKey(rendered, KEYS.up, '▶  ☰ Line 1');
+            await pressKey(rendered, 'd', 'Are you sure you want to delete line?');
+            await pressKey(rendered, KEYS.enter, '☰ Line 2 (3 widgets)');
+
+            expect(selectedRow(rendered)).toContain('☰ Line 1 (2 widgets)');
+        } finally {
+            rendered.cleanup();
+        }
+    });
+
     it('shows the regular Presets screen once the first-run picker is answered', async () => {
         const rendered = renderApp({ firstRun: true });
 

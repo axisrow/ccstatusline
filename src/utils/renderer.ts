@@ -1140,18 +1140,27 @@ export function renderStatusLineWithInfo(
     const resolvedForegrounds = new Map<number, string>();
 
     // A merge only glues to the next widget that renders before a separator
-    // or flex separator; otherwise the widget keeps its own palette slot
+    // or flex separator; otherwise the widget keeps its own palette slot.
+    // Separators after a widget that rendered empty are dropped below (the
+    // merge owns that boundary), so the glue reaches past them.
     const mergesWithNextRenderedWidget = (index: number): boolean => {
         if (!widgets[index]?.merge)
             return false;
+        let crossedEmptyWidget = false;
         for (let j = index + 1; j < widgets.length; j++) {
             const nextWidget = widgets[j];
             if (!nextWidget)
                 continue;
-            if (nextWidget.type === 'separator' || nextWidget.type === 'flex-separator')
+            if (nextWidget.type === 'flex-separator')
                 return false;
+            if (nextWidget.type === 'separator') {
+                if (!crossedEmptyWidget)
+                    return false;
+                continue;
+            }
             if (preRenderedWidgets[j]?.content)
                 return true;
+            crossedEmptyWidget = true;
         }
         return false;
     };

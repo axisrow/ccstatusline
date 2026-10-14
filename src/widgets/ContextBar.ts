@@ -122,8 +122,13 @@ export class ContextBarWidget implements Widget {
 
         const percent = (used / total) * 100;
         const clampedPercent = Math.max(0, Math.min(100, percent));
-        const usedDisplay = formatTokens(used, tokenFormat, 0);
         const totalDisplay = formatTokens(total, tokenFormat, 0);
+        // Like the percent below, the used count must not round up to the
+        // total while tokens are still free ("200k/200k"): show one more digit
+        const roundedUsedDisplay = formatTokens(used, tokenFormat, 0);
+        const usedDisplay = used < total && roundedUsedDisplay === totalDisplay
+            ? formatTokens(used, tokenFormat, 1)
+            : roundedUsedDisplay;
         // Whole-percent rounding would claim 100% while tokens are still free
         const shownPercent = used < total
             ? Math.min(clampedPercent, 100 - 10 ** -effectiveDecimals(percentFormat, 0))

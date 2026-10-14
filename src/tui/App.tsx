@@ -955,9 +955,6 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
         buildMainMenuItems(isClaudeInstalled, false, effectiveInstallation, settings.powerline.enabled),
         option
     );
-    // The remembered line can be gone after a delete; past the last line the
-    // list would open on "← Back"
-    const rememberedLineSelection = Math.min(menuSelections.lines ?? 0, Math.max(0, settings.lines.length - 1));
     const pinnedVersionMismatch = effectiveInstallation.method === 'pinned'
         && effectiveInstallation.packageManager !== 'unknown'
         ? getPinnedVersionMismatch(
@@ -1109,18 +1106,28 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
         setScreen('uninstallOptions');
     };
 
+    // The remembered line can be gone after a delete; past the last line the
+    // list would open on "← Back". Clamped once on entry: a value that changed
+    // while the list is shown would move its highlight after a delete.
+    const clampRememberedLine = () => {
+        setMenuSelections(prev => ({ ...prev, lines: Math.min(prev.lines ?? 0, Math.max(0, settings.lines.length - 1)) }));
+    };
+
     const handleMainMenuSelect = async (value: MainMenuOption) => {
         switch (value) {
             case 'lines':
+                clampRememberedLine();
                 setScreen('lines');
                 break;
             case 'colors':
+                clampRememberedLine();
                 setScreen('colorLines');
                 break;
             case 'theme':
                 setScreen('theme');
                 break;
             case 'lineThemes':
+                clampRememberedLine();
                 setScreen('themeLines');
                 break;
             case 'terminalConfig':
@@ -1330,7 +1337,7 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
                             setMenuSelections(prev => ({ ...prev, main: mainMenuIndex('lines') }));
                             setScreen('main');
                         }}
-                        initialSelection={rememberedLineSelection}
+                        initialSelection={menuSelections.lines}
                         title='Select Line to Edit Items'
                         allowEditing={true}
                     />
@@ -1361,7 +1368,7 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
                             setMenuSelections(prev => ({ ...prev, main: mainMenuIndex('colors') }));
                             setScreen('main');
                         }}
-                        initialSelection={rememberedLineSelection}
+                        initialSelection={menuSelections.lines}
                         title='Select Line to Edit Colors'
                         blockIfPowerlineActive={true}
                         settings={settings}
@@ -1398,7 +1405,7 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
                             setMenuSelections(prev => ({ ...prev, main: mainMenuIndex('lineThemes') }));
                             setScreen('main');
                         }}
-                        initialSelection={rememberedLineSelection}
+                        initialSelection={menuSelections.lines}
                         title='Select Line to Edit Theme'
                         settings={settings}
                         allowEditing={true}
