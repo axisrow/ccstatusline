@@ -279,7 +279,7 @@ describe('CompactionCounterWidget', () => {
         it('has correct editor display', () => {
             expect(new CompactionCounterWidget().getEditorDisplay(ITEM)).toEqual({
                 displayText: 'Compaction Counter',
-                modifierText: '(icon-space-number)'
+                modifierText: '(icon-and-number)'
             });
         });
 
@@ -299,7 +299,7 @@ describe('CompactionCounterWidget', () => {
                 metadata: { nerdFont: 'true' }
             })).toEqual({
                 displayText: 'Compaction Counter',
-                modifierText: '(icon-space-number, nerd font)'
+                modifierText: '(icon-and-number, nerd font)'
             });
         });
 
@@ -313,7 +313,7 @@ describe('CompactionCounterWidget', () => {
                 metadata: { format: 'icon-number', nerdFont: 'true' }
             })).toEqual({
                 displayText: 'Compaction Counter',
-                modifierText: '(icon-space-number, nerd font)'
+                modifierText: '(icon-and-number, nerd font)'
             });
         });
 
@@ -372,7 +372,7 @@ describe('CompactionCounterWidget', () => {
                 metadata: { showTriggers: 'true' }
             })).toEqual({
                 displayText: 'Compaction Counter',
-                modifierText: '(icon-space-number, trigger split)'
+                modifierText: '(icon-and-number, trigger split)'
             });
         });
 
@@ -391,7 +391,7 @@ describe('CompactionCounterWidget', () => {
                 metadata: { showReclaimed: 'true' }
             })).toEqual({
                 displayText: 'Compaction Counter',
-                modifierText: '(icon-space-number, reclaimed)'
+                modifierText: '(icon-and-number, reclaimed)'
             });
         });
     });

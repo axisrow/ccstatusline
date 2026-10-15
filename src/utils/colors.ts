@@ -128,11 +128,20 @@ export function getChalkColor(colorName: string | undefined, colorLevel: 'ansi16
     }
 }
 
+// An OSC sequence (hyperlink), or a (...) span that may contain whole OSC
+// sequences. OSC sequences carry URLs, which may contain parentheses.
+const OSC_SEQUENCE = String.raw`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)`;
+const OSC_OR_PARENS_SPAN_REGEX = new RegExp(`${OSC_SEQUENCE}|\\((?:[^()\\x1b]|${OSC_SEQUENCE}|\\x1b(?!\\]))*\\)`, 'g');
+
 // Dim each (...) span within the text. \x1b[22m clears bold along with dim,
 // so bold is re-asserted after each span when the surrounding text is bold.
+// OSC sequences pass through untouched: a style code inside a hyperlink URL
+// breaks the link and prints the rest of the URL as text.
 export function applyParensDim(text: string, bold?: boolean): string {
     const intensityReset = bold ? '\x1b[22;1m' : '\x1b[22m';
-    return text.replace(/\([^()]*\)/g, span => `\x1b[2m${span}${intensityReset}`);
+    return text.replace(OSC_OR_PARENS_SPAN_REGEX, match => (
+        match.startsWith('\x1b]') ? match : `\x1b[2m${match}${intensityReset}`
+    ));
 }
 
 export function applyColors(
@@ -502,6 +511,12 @@ export function getPowerlineThemes(): string[] {
 
 export function getPowerlineTheme(name: string): PowerlineTheme | undefined {
     return POWERLINE_THEMES[name];
+}
+
+// The name the theme picker shows ("One Dark" for 'onedark'); unknown keys
+// fall back to the key with its first letter capitalized
+export function getThemeDisplayName(themeKey: string): string {
+    return getPowerlineTheme(themeKey)?.name ?? themeKey.charAt(0).toUpperCase() + themeKey.slice(1);
 }
 
 export function getDefaultPowerlineTheme(): string {

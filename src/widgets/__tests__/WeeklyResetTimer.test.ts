@@ -151,6 +151,15 @@ describe('WeeklyResetTimerWidget', () => {
         expect(render(widget, { id: 'weekly-reset', type: 'weekly-reset-timer', metadata: { display: 'progress' } }, { usageData: {} })).toBe('Weekly Reset [Loading]');
     });
 
+    it('says the window has not started when usage loaded at zero with no reset time', () => {
+        const widget = new WeeklyResetTimerWidget();
+
+        mockResolveWeeklyUsageWindow.mockReturnValue(null);
+
+        expect(render(widget, { id: 'weekly-reset', type: 'weekly-reset-timer' }, { usageData: { weeklyUsage: 0 } })).toBe('Weekly Reset: [Not started]');
+        expect(render(widget, { id: 'weekly-reset', type: 'weekly-reset-timer', rawValue: true }, { usageData: { weeklyUsage: 0 } })).toBe('[Not started]');
+    });
+
     it('declares the no-data and zero hideable states', () => {
         expect(new WeeklyResetTimerWidget().getHideableStates().map(state => state.key)).toEqual(['no-data', 'zero']);
     });

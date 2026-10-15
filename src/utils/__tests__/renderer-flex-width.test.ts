@@ -699,4 +699,14 @@ describe('flex-separator widget', () => {
         const unknown = renderLine(widgets, { flexMode: 'full', colorLevel: 0 }, { terminalWidth: 0 });
         expect(stripSgrCodes(unknown)).toBe('left | FLEXright');
     });
+
+    it('renders nothing for a flex separator at a line edge when terminal width is unknown', () => {
+        const left: WidgetItem = { id: 'left', type: 'custom-text', customText: 'left' };
+        const right: WidgetItem = { id: 'right', type: 'custom-text', customText: 'right' };
+        const settings = { flexMode: 'full' as const, colorLevel: 0 as const };
+
+        expect(stripSgrCodes(renderLine([flexWidget, left, right], settings, { terminalWidth: 0 }))).toBe('leftright');
+        expect(stripSgrCodes(renderLine([left, right, flexWidget], settings, { terminalWidth: 0 }))).toBe('leftright');
+        expect(stripSgrCodes(renderLine([flexWidget, left, flexWidget, right, flexWidget], settings, { terminalWidth: 0 }))).toBe('left | right');
+    });
 });

@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 
 import type { MatchSegment } from '../../utils/fuzzy';
 import { shouldInsertInput } from '../../utils/input-guards';
+import { getVisibleRange } from '../../utils/visible-range';
 
 const MAX_VISIBLE_OPTIONS = 10;
 
@@ -32,17 +33,6 @@ interface SearchableOptionEditorProps<T extends SearchableOption> {
 function getInitialSelectedIndex(options: SearchableOption[], selectedValue: string | null): number {
     const selectedIndex = options.findIndex(option => option.value === selectedValue);
     return selectedIndex === -1 ? 0 : selectedIndex;
-}
-
-function getVisibleRange(selectedIndex: number, totalOptions: number): { start: number; end: number } {
-    if (totalOptions <= MAX_VISIBLE_OPTIONS) {
-        return { start: 0, end: totalOptions };
-    }
-
-    const halfWindow = Math.floor(MAX_VISIBLE_OPTIONS / 2);
-    const maxStart = totalOptions - MAX_VISIBLE_OPTIONS;
-    const start = Math.min(Math.max(0, selectedIndex - halfWindow), maxStart);
-    return { start, end: start + MAX_VISIBLE_OPTIONS };
 }
 
 // The selected row is all green; other rows highlight the letters that match
@@ -76,7 +66,7 @@ export function SearchableOptionEditor<T extends SearchableOption>({
         ? 0
         : Math.min(selectedIndex, filteredOptions.length - 1);
     const selectedOption = filteredOptions[clampedSelectedIndex];
-    const visibleRange = getVisibleRange(clampedSelectedIndex, filteredOptions.length);
+    const visibleRange = getVisibleRange(clampedSelectedIndex, filteredOptions.length, MAX_VISIBLE_OPTIONS);
     const visibleOptions = filteredOptions.slice(visibleRange.start, visibleRange.end);
 
     useInput((input, key) => {

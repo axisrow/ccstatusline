@@ -22,7 +22,6 @@ import { withGlobalCompactLabels } from '../widgets/shared/raw-or-labeled';
 import {
     applyLineGradient,
     applyLineGradientSegment,
-    getVisibleText,
     getVisibleWidth,
     restoreBackgroundAfterResets,
     stripSgrCodes,
@@ -163,7 +162,7 @@ function renderPowerlineStatusLine(
     globalThemeColorOffset = 0,  // Starting theme color index for this line
     preRenderedWidgets: PreRenderedWidget[],  // Pre-rendered widgets for this line
     preCalculatedMaxWidths: number[]  // Pre-calculated max widths for alignment
-): string {
+): RenderResult {
     const powerlineConfig = settings.powerline as Record<string, unknown> | undefined;
     const config = powerlineConfig ?? {};
     const continueThemeAcrossLines = Boolean(config.continueThemeAcrossLines);
@@ -208,7 +207,7 @@ function renderPowerlineStatusLine(
     const FLEX_SENTINEL = '\x01FLEX_SEP\x01';
 
     if (filteredWidgets.length === 0)
-        return '';
+        return { line: '', wasTruncated: false };
 
     const detectedWidth = context.terminalWidth ?? getTerminalWidth();
 
@@ -368,7 +367,7 @@ function renderPowerlineStatusLine(
     }
 
     if (widgetElements.length === 0)
-        return '';
+        return { line: '', wasTruncated: false };
 
     const renderedElementIndexByOriginalIndex = new Map<number, number>();
     widgetElements.forEach((element, index) => {
@@ -755,14 +754,16 @@ function renderPowerlineStatusLine(
     result += chalk.reset('');
 
     // Handle truncation if terminal width is known
+    let wasTruncated = false;
     if (terminalWidth !== null) {
         const plainLength = getVisibleWidth(result);
         if (plainLength > terminalWidth) {
             result = truncateStyledText(result, terminalWidth, { ellipsis: true });
+            wasTruncated = true;
         }
     }
 
-    return result;
+    return { line: result, wasTruncated };
 }
 
 // Format separator with appropriate spacing
@@ -946,7 +947,10 @@ export function preRenderAllWidgets(
             // Use stringWidth to properly calculate Unicode character display width
             const plainLength = getVisibleWidth(widgetText);
             preRenderedLine.push({
-                content: widgetText,
+                // Output with nothing visible (e.g. a script wrapping an empty
+                // variable in color codes) is empty: it must not keep its
+                // separators or a Powerline segment.
+                content: plainLength > 0 ? widgetText : '',
                 plainLength,
                 widget
             });
@@ -1042,19 +1046,6 @@ export function calculateMaxWidthsFromPreRendered(
     return maxWidths;
 }
 
-export function renderStatusLineWithInfo(
-    widgets: WidgetItem[],
-    settings: Settings,
-    context: RenderContext,
-    preRenderedWidgets: PreRenderedWidget[],
-    preCalculatedMaxWidths: number[]
-): RenderResult {
-    const line = renderStatusLine(widgets, settings, context, preRenderedWidgets, preCalculatedMaxWidths);
-    // Check if line contains the truncation ellipsis
-    const wasTruncated = getVisibleText(line).includes('...');
-    return { line, wasTruncated };
-}
-
 export function renderStatusLine(
     widgets: WidgetItem[],
     settings: Settings,
@@ -1062,6 +1053,19 @@ export function renderStatusLine(
     preRenderedWidgets: PreRenderedWidget[],
     preCalculatedMaxWidths: number[]
 ): string {
+    return renderStatusLineWithInfo(widgets, settings, context, preRenderedWidgets, preCalculatedMaxWidths).line;
+}
+
+// wasTruncated reports whether the line was cut to fit the width. Widget text
+// can contain "..." on its own (a Custom Text, a CWD segments path), so the
+// renderer reports the cut rather than callers searching for the ellipsis.
+export function renderStatusLineWithInfo(
+    widgets: WidgetItem[],
+    settings: Settings,
+    context: RenderContext,
+    preRenderedWidgets: PreRenderedWidget[],
+    preCalculatedMaxWidths: number[]
+): RenderResult {
     // Force 24-bit color for non-preview statusline rendering
     // Chalk level is now set globally in ccstatusline.ts and tui.tsx
     // No need to override here
@@ -1129,8 +1133,37 @@ export function renderStatusLine(
     // Calculate terminal width based on flex mode settings
     const terminalWidth = resolveEffectiveTerminalWidth(detectedWidth, settings, context);
 
-    const elements: { content: string; type: string; widget?: WidgetItem }[] = [];
+    const elements: { content: string; type: string; widget?: WidgetItem; foregroundColor?: string }[] = [];
     let hasFlexSeparator = false;
+    // Foreground each widget was drawn with (explicit, theme or default), so
+    // inherited separator colors match what is on screen
+    const resolvedForegrounds = new Map<number, string>();
+
+    // A merge only glues to the next widget that renders before a separator
+    // or flex separator; otherwise the widget keeps its own palette slot.
+    // Separators after a widget that rendered empty are dropped below (the
+    // merge owns that boundary), so the glue reaches past them.
+    const mergesWithNextRenderedWidget = (index: number): boolean => {
+        if (!widgets[index]?.merge)
+            return false;
+        let crossedEmptyWidget = false;
+        for (let j = index + 1; j < widgets.length; j++) {
+            const nextWidget = widgets[j];
+            if (!nextWidget)
+                continue;
+            if (nextWidget.type === 'flex-separator')
+                return false;
+            if (nextWidget.type === 'separator') {
+                if (!crossedEmptyWidget)
+                    return false;
+                continue;
+            }
+            if (preRenderedWidgets[j]?.content)
+                return true;
+            crossedEmptyWidget = true;
+        }
+        return false;
+    };
 
     // Build elements based on configured widgets
     for (let i = 0; i < widgets.length; i++) {
@@ -1170,6 +1203,28 @@ export function renderStatusLine(
             if (contentBeforeIndex === null)
                 continue;
 
+            // Likewise forward: when every widget between a visible separator
+            // and a flex separator renders empty, the separator would dangle
+            // in front of the gap (the end-of-line case is trimmed below). A
+            // separator configured directly before a flex is kept, and so is
+            // a spacing-only one: it is the boundary when the gap gets no room.
+            let dangleCheckCrossedEmpty = false;
+            let danglesBeforeFlex = false;
+            for (let j = i + 1; j < widgets.length && !isSpacingSeparator(widget, settings.defaultSeparator); j++) {
+                const nextWidget = widgets[j];
+                if (!nextWidget)
+                    continue;
+                if (nextWidget.type === 'separator' || preRenderedWidgets[j]?.content)
+                    break;
+                if (nextWidget.type === 'flex-separator') {
+                    danglesBeforeFlex = dangleCheckCrossedEmpty;
+                    break;
+                }
+                dangleCheckCrossedEmpty = true;
+            }
+            if (danglesBeforeFlex)
+                continue;
+
             if (replacesSpacingSeparator) {
                 while (isSpacingSeparator(elements[elements.length - 1]?.widget, settings.defaultSeparator)) {
                     elements.pop();
@@ -1189,8 +1244,8 @@ export function renderStatusLine(
                 // Only inherit if the separator doesn't have explicit colors set
                 const prevWidget = widgets[contentBeforeIndex];
                 if (prevWidget) {
-                    // Get the previous widget's colors
-                    let widgetColor = prevWidget.color;
+                    // Get the previous widget's colors, including a theme color
+                    let widgetColor = prevWidget.color ?? resolvedForegrounds.get(contentBeforeIndex);
                     if (!widgetColor) {
                         const widgetImpl = getWidget(prevWidget.type);
                         widgetColor = widgetImpl ? widgetImpl.getDefaultColor() : 'white';
@@ -1245,6 +1300,19 @@ export function renderStatusLine(
                     if (hasForegroundOverride(settings)) {
                         finalOutput = stripSgrCodes(finalOutput);
                     }
+                    // Like Powerline mode: a reset inside the content would
+                    // clear the widget background mid-text, and styles the
+                    // content leaves open would leak into the rest of the line
+                    const backgroundColor = settings.overrideBackgroundColor && settings.overrideBackgroundColor !== 'none'
+                        ? settings.overrideBackgroundColor
+                        : widget.backgroundColor;
+                    const backgroundCode = backgroundColor ? getColorAnsiCode(backgroundColor, colorLevel, true) : '';
+                    if (backgroundCode) {
+                        finalOutput = restoreBackgroundAfterResets(finalOutput, backgroundCode);
+                    }
+                    if (stripSgrCodes(finalOutput) !== finalOutput) {
+                        finalOutput += '\x1b[0m';
+                    }
                     // Preserve intrinsic foregrounds only when no global
                     // foreground override is active. Bold, dim, backgrounds,
                     // and global overrides still wrap the widget normally.
@@ -1256,13 +1324,16 @@ export function renderStatusLine(
                 } else {
                     // Normal widget rendering with colors; theme palette fills
                     // in when the widget has no explicit color
+                    const foregroundColor = widget.color ?? themedFg ?? defaultColor;
+                    resolvedForegrounds.set(i, foregroundColor);
                     elements.push({
-                        content: applyColorsWithOverride(widgetText, widget.color ?? themedFg ?? defaultColor, widget.backgroundColor, widget.bold, widget.dim),
+                        content: applyColorsWithOverride(widgetText, foregroundColor, widget.backgroundColor, widget.bold, widget.dim),
                         type: widget.type,
-                        widget
+                        widget,
+                        foregroundColor
                     });
                 }
-                if (!widget.merge)
+                if (!mergesWithNextRenderedWidget(i))
                     themeColorIndex++;
             }
         } catch {
@@ -1272,7 +1343,7 @@ export function renderStatusLine(
     }
 
     if (elements.length === 0)
-        return '';
+        return { line: '', wasTruncated: false };
 
     // Remove trailing separators
     while (elements.length > 0 && elements[elements.length - 1]?.type === 'separator') {
@@ -1318,7 +1389,7 @@ export function renderStatusLine(
                 if (prevElem?.widget) {
                     // Apply the previous element's colors to the separator (already handles override)
                     // Use the widget's color if set, otherwise get the default color for that widget type
-                    let widgetColor = prevElem.widget.color;
+                    let widgetColor = prevElem.widget.color ?? prevElem.foregroundColor;
                     if (!widgetColor && prevElem.widget.type !== 'separator' && prevElem.widget.type !== 'flex-separator') {
                         const widgetImpl = getWidget(prevElem.widget.type);
                         widgetColor = widgetImpl ? widgetImpl.getDefaultColor() : 'white';
@@ -1419,8 +1490,11 @@ export function renderStatusLine(
             }
         }
     } else if (hasFlexSeparator) {
-        // No width detected: treat flex separators as normal separators
-        statusLine = finalElements.map(e => e ?? chalk.gray(' | ')).join('');
+        // No width detected: treat flex separators as normal separators. At a
+        // line edge there is nothing to separate, so they render as nothing
+        const firstContent = finalElements.findIndex(e => e !== null);
+        const lastContent = finalElements.findLastIndex(e => e !== null);
+        statusLine = finalElements.map((e, index) => e ?? (index > firstContent && index < lastContent ? chalk.gray(' | ') : '')).join('');
     } else {
         // No flex separator: just join all elements normally
         statusLine = finalElements.join('');
@@ -1430,12 +1504,14 @@ export function renderStatusLine(
     // Use terminalWidth if available (already accounts for flex mode adjustments, and
     // may be 0 when the reserve takes the whole terminal), otherwise use detectedWidth
     const maxWidth = terminalWidth ?? detectedWidth;
+    let wasTruncated = false;
     if (maxWidth !== null && (terminalWidth !== null || maxWidth > 0)) {
         // Remove ANSI escape codes to get actual length
         const plainLength = getVisibleWidth(statusLine);
 
         if (plainLength > maxWidth) {
             statusLine = truncateStyledText(statusLine, maxWidth, { ellipsis: true });
+            wasTruncated = true;
         }
     }
 
@@ -1449,5 +1525,5 @@ export function renderStatusLine(
     // reset at the true end.
     statusLine = maybeApplyForegroundGradient(statusLine, settings, colorLevel);
 
-    return statusLine;
+    return { line: statusLine, wasTruncated };
 }

@@ -19,6 +19,7 @@ import {
     getNumberFormatModifierText
 } from '../../utils/number-format';
 import { canDetectTerminalWidth } from '../../utils/terminal';
+import { getVisibleRange } from '../../utils/visible-range';
 import {
     filterWidgetCatalog,
     getCompactLabelCapableTypes,
@@ -61,6 +62,8 @@ export interface ItemsEditorProps {
     lineNumber: number;
     settings: Settings;
 }
+
+const MAX_VISIBLE_PICKER_ENTRIES = 12;
 
 function isMergedIntoPreviousWidget(widgets: WidgetItem[], index: number): boolean {
     if (index <= 0) {
@@ -335,6 +338,25 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
     const selectedPickerEntry = widgetPicker
         ? (pickerEntries.find(entry => entry.type === widgetPicker.selectedType) ?? pickerEntries[0])
         : null;
+    // Widget lists can be taller than the terminal ("All" holds every widget),
+    // so only a window around the selection is drawn
+    const topLevelSearchRange = getVisibleRange(
+        Math.max(0, topLevelSearchEntries.findIndex(entry => entry.type === selectedTopLevelSearchEntry?.type)),
+        topLevelSearchEntries.length,
+        MAX_VISIBLE_PICKER_ENTRIES
+    );
+    const pickerRange = getVisibleRange(
+        Math.max(0, pickerEntries.findIndex(entry => entry.type === selectedPickerEntry?.type)),
+        pickerEntries.length,
+        MAX_VISIBLE_PICKER_ENTRIES
+    );
+    const renderRangeNote = (range: { start: number; end: number }, total: number) => (
+        total > range.end - range.start && (
+            <Box paddingLeft={3}>
+                <Text dimColor>{`Showing ${range.start + 1}-${range.end} of ${total}`}</Text>
+            </Box>
+        )
+    );
 
     // Build main help text (without custom keybinds)
     let helpText = hasWidgets
@@ -497,7 +519,7 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
                 </Box>
             )}
             {hasFlexSeparator && !widthDetectionAvailable && (
-                <Box marginTop={1}>
+                <Box marginTop={1} flexDirection='column'>
                     <Text color='yellow'>⚠ Note: Terminal width detection is currently unavailable in your environment.</Text>
                     <Text dimColor>  Flex separators will act as normal separators until width detection is available.</Text>
                 </Box>
@@ -510,7 +532,8 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
                                 <Text dimColor>No widgets match the search.</Text>
                             ) : (
                                 <>
-                                    {topLevelSearchEntries.map((entry, index) => {
+                                    {topLevelSearchEntries.slice(topLevelSearchRange.start, topLevelSearchRange.end).map((entry, visibleIndex) => {
+                                        const index = topLevelSearchRange.start + visibleIndex;
                                         const isSelected = entry.type === selectedTopLevelSearchEntry?.type;
                                         const segments = getMatchSegments(entry.displayName, widgetPicker.categoryQuery);
                                         return (
@@ -533,6 +556,7 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
                                             </Box>
                                         );
                                     })}
+                                    {renderRangeNote(topLevelSearchRange, topLevelSearchEntries.length)}
                                     {selectedTopLevelSearchEntry && (
                                         <Box marginTop={1} paddingLeft={2}>
                                             <Text dimColor>{selectedTopLevelSearchEntry.description}</Text>
@@ -573,7 +597,8 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
                             <Text dimColor>No widgets match the current category/search.</Text>
                         ) : (
                             <>
-                                {pickerEntries.map((entry, index) => {
+                                {pickerEntries.slice(pickerRange.start, pickerRange.end).map((entry, visibleIndex) => {
+                                    const index = pickerRange.start + visibleIndex;
                                     const isSelected = entry.type === selectedPickerEntry?.type;
                                     const segments = getMatchSegments(entry.displayName, widgetPicker.widgetQuery);
                                     return (
@@ -596,6 +621,7 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
                                         </Box>
                                     );
                                 })}
+                                {renderRangeNote(pickerRange, pickerEntries.length)}
                                 {selectedPickerEntry && (
                                     <Box marginTop={1} paddingLeft={2}>
                                         <Text dimColor>{selectedPickerEntry.description}</Text>

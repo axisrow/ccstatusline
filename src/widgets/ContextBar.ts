@@ -12,6 +12,7 @@ import {
     getModelContextIdentifier
 } from '../utils/model-context';
 import {
+    effectiveDecimals,
     formatPercent,
     resolveNumberFormat
 } from '../utils/number-format';
@@ -33,6 +34,14 @@ function getDisplayMode(item: WidgetItem): DisplayMode {
     return 'progress-short';
 }
 
+// Same names the usage widgets use for their bar modes
+const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
+    'progress': 'long bar',
+    'progress-short': 'medium bar',
+    'slider': 'short bar',
+    'slider-only': 'short bar only'
+};
+
 function isBarSliderMode(mode: DisplayMode): boolean {
     return mode === 'slider' || mode === 'slider-only';
 }
@@ -45,20 +54,9 @@ export class ContextBarWidget implements Widget {
     getLabelPrefix(): string { return LABEL; }
 
     getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
-        const mode = getDisplayMode(item);
-        const modifiers: string[] = [];
-
-        if (mode === 'progress-short') {
-            modifiers.push('medium bar');
-        } else if (mode === 'slider') {
-            modifiers.push('short bar');
-        } else if (mode === 'slider-only') {
-            modifiers.push('short bar only');
-        }
-
         return {
             displayText: this.getDisplayName(),
-            modifierText: modifiers.length > 0 ? `(${modifiers.join(', ')})` : undefined
+            modifierText: `(${DISPLAY_MODE_LABELS[getDisplayMode(item)]})`
         };
     }
 
@@ -124,9 +122,18 @@ export class ContextBarWidget implements Widget {
 
         const percent = (used / total) * 100;
         const clampedPercent = Math.max(0, Math.min(100, percent));
-        const usedDisplay = formatTokens(used, tokenFormat, 0);
         const totalDisplay = formatTokens(total, tokenFormat, 0);
-        const percentDisplay = formatPercent(clampedPercent, percentFormat, 0);
+        // Like the percent below, the used count must not round up to the
+        // total while tokens are still free ("200k/200k"): show one more digit
+        const roundedUsedDisplay = formatTokens(used, tokenFormat, 0);
+        const usedDisplay = used < total && roundedUsedDisplay === totalDisplay
+            ? formatTokens(used, tokenFormat, 1)
+            : roundedUsedDisplay;
+        // Whole-percent rounding would claim 100% while tokens are still free
+        const shownPercent = used < total
+            ? Math.min(clampedPercent, 100 - 10 ** -effectiveDecimals(percentFormat, 0))
+            : clampedPercent;
+        const percentDisplay = formatPercent(shownPercent, percentFormat, 0);
 
         if (isBarSliderMode(displayMode)) {
             const slider = makeSliderBar(clampedPercent);

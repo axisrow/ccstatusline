@@ -138,9 +138,12 @@ export const TerminalOptionsMenu: React.FC<TerminalOptionsMenuProps> = ({
                 <Box flexDirection='column' marginTop={1}>
                     <Text color='yellow'>⚠ Warning: Custom colors detected!</Text>
                     <Text>Switching color modes will reset custom ansi256 or hex colors to defaults.</Text>
+                    {/* The inline dialog draws only Yes/No, so the question is printed here */}
+                    <Box marginTop={1}>
+                        <Text>Continue?</Text>
+                    </Box>
                     <Box marginTop={1}>
                         <ConfirmDialog
-                            message='Continue?'
                             onConfirm={handleColorConfirm}
                             onCancel={handleColorCancel}
                             inline

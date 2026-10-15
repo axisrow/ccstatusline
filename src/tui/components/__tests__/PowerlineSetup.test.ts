@@ -87,6 +87,12 @@ describe('PowerlineSetup helpers', () => {
         expect(getThemeDisplay(config)).toBe('Gruvbox');
     });
 
+    it('shows multi-word themes by their picker names', () => {
+        expect(getThemeDisplay({ ...DEFAULT_SETTINGS.powerline, theme: 'onedark' })).toBe('One Dark');
+        expect(getThemeDisplay({ ...DEFAULT_SETTINGS.powerline, theme: 'tokyonight' })).toBe('Tokyo Night');
+        expect(getThemeDisplay({ ...DEFAULT_SETTINGS.powerline, theme: 'nord-aurora' })).toBe('Nord Aurora');
+    });
+
     it('builds powerline setup items with disabled states and sublabels', () => {
         const disabledItems = buildPowerlineSetupMenuItems({
             ...DEFAULT_SETTINGS.powerline,

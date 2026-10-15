@@ -280,4 +280,49 @@ describe('InstallMenu', () => {
             stderr.destroy();
         }
     });
+
+    it('reopens the package step on the remembered manager when npm is missing', async () => {
+        const stdin = createMockStdin();
+        const stdout = createMockStdout();
+        const stderr = createMockStdout();
+        const instance = render(
+            React.createElement(InstallMenu, {
+                commandAvailability: { npm: false, npx: false, bun: true, bunx: true },
+                currentVersion: '2.2.13',
+                existingStatusLine: null,
+                onSelect: vi.fn(),
+                onCancel: vi.fn(),
+                // bun, as App stores it after a cancelled bun install
+                initialPackageSelection: 1
+            }),
+            {
+                stdin,
+                stdout,
+                stderr,
+                debug: true,
+                exitOnCtrlC: false,
+                patchConsole: false
+            }
+        );
+
+        try {
+            await waitFor(() => {
+                expect(stdout.getOutput()).toContain('▶  Pinned global install');
+            });
+            stdout.clearOutput();
+            stdin.write('\r');
+            await waitFor(() => {
+                expect(stdout.getOutput()).toContain('Select package manager');
+            });
+
+            expect(stdout.getOutput()).toContain('▶  bun add -g ccstatusline@2.2.13');
+            expect(stdout.getOutput()).not.toContain('▶  ← Back');
+        } finally {
+            instance.unmount();
+            instance.cleanup();
+            stdin.destroy();
+            stdout.destroy();
+            stderr.destroy();
+        }
+    });
 });

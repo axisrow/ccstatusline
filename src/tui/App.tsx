@@ -276,7 +276,7 @@ const PinnedVersionMismatchScreen: React.FC<PinnedVersionMismatchScreenProps> = 
             </Box>
             <Box marginTop={1} flexDirection='column'>
                 <Text>
-                    Current pinned version:
+                    Relaunch the pinned version with:
                     {' '}
                     {mismatch.relaunchCommand}
                 </Text>
@@ -523,7 +523,9 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
     const [configLoadError, setConfigLoadError] = useState<string | null>(null);
     // A first run (settings.json absent when the process started, detected in
     // main() before defaults were materialized) starts on the preset picker.
-    const [firstRun] = useState(firstRunProp);
+    // Cleared once the first-run picker is answered, so a later visit to
+    // Presets shows its replace warning.
+    const [firstRun, setFirstRun] = useState(firstRunProp);
     const [screen, setScreen] = useState<AppScreen>(firstRun ? 'presets' : 'main');
     const [selectedLine, setSelectedLine] = useState(0);
     const [menuSelections, setMenuSelections] = useState<Record<string, number>>({});
@@ -683,6 +685,7 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
         inspectGlobalCommandResolution(packageManager).warning
     ), []);
 
+    const powerlineEnabled = settings?.powerline.enabled ?? false;
     const handleInstallSelection = useCallback((selection: InstallSelection) => {
         void getExistingStatusLine().then((existing) => {
             const isAlreadyInstalled = isKnownCommand(existing ?? '');
@@ -764,7 +767,7 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
                             : prev);
                         setMenuSelections(prev => ({
                             ...prev,
-                            main: getMainMenuInstallSelectionIndex(true, selection.metadata)
+                            main: getMainMenuInstallSelectionIndex(true, selection.metadata, powerlineEnabled)
                         }));
                         const resolutionWarning = selection.globalInstallCommand
                             ? getGlobalResolutionWarning(selection.packageManager)
@@ -801,7 +804,7 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
             });
             setScreen('confirm');
         });
-    }, [getGlobalResolutionWarning, supportsRefreshInterval]);
+    }, [getGlobalResolutionWarning, powerlineEnabled, supportsRefreshInterval]);
 
     const handleInstallMenuCancel = useCallback(() => {
         setMenuSelections(clearInstallMenuSelection);
@@ -1043,7 +1046,7 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
                     setOriginalSettings(clearInstallationMetadata);
                     setMenuSelections(prev => ({
                         ...prev,
-                        main: getMainMenuInstallSelectionIndex(false)
+                        main: getMainMenuInstallSelectionIndex(false, undefined, settings.powerline.enabled)
                     }));
                     setFlashMessage({
                         text: selection.packageManagers.length > 0
@@ -1061,7 +1064,7 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
                         setOriginalSettings(clearInstallationMetadata);
                         setMenuSelections(prev => ({
                             ...prev,
-                            main: getMainMenuInstallSelectionIndex(false)
+                            main: getMainMenuInstallSelectionIndex(false, undefined, settings.powerline.enabled)
                         }));
                         setFlashMessage({
                             text: '✗ Removed Claude settings, but global package removal failed',
@@ -1103,18 +1106,28 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
         setScreen('uninstallOptions');
     };
 
+    // The remembered line can be gone after a delete; past the last line the
+    // list would open on "← Back". Clamped once on entry: a value that changed
+    // while the list is shown would move its highlight after a delete.
+    const clampRememberedLine = () => {
+        setMenuSelections(prev => ({ ...prev, lines: Math.min(prev.lines ?? 0, Math.max(0, settings.lines.length - 1)) }));
+    };
+
     const handleMainMenuSelect = async (value: MainMenuOption) => {
         switch (value) {
             case 'lines':
+                clampRememberedLine();
                 setScreen('lines');
                 break;
             case 'colors':
+                clampRememberedLine();
                 setScreen('colorLines');
                 break;
             case 'theme':
                 setScreen('theme');
                 break;
             case 'lineThemes':
+                clampRememberedLine();
                 setScreen('themeLines');
                 break;
             case 'terminalConfig':
@@ -1501,7 +1514,7 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
                         onBack={() => {
                             setMenuSelections(prev => ({
                                 ...prev,
-                                main: getMainMenuInstallSelectionIndex(true, effectiveInstallation)
+                                main: getMainMenuInstallSelectionIndex(true, effectiveInstallation, settings.powerline.enabled)
                             }));
                             setScreen('main');
                         }}
@@ -1612,6 +1625,9 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
                             setSettings(updatedSettings);
                         }}
                         onBack={() => {
+                            // Toggling powerline adds or removes the Theme entry,
+                            // so the index stored on the way in may be stale
+                            setMenuSelections(prev => ({ ...prev, main: mainMenuIndex('powerline') }));
                             setScreen('main');
                         }}
                         onInstallFonts={() => {
@@ -1672,9 +1688,13 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
                             setSettings(applyTuiImport(settings, buildPresetSettings(preset), 'replace', ['version', 'lines']));
                             setHasChanges(true);
                             setFlashMessage({ text: `Preset '${name}' applied — pick 💾 Save & Exit to keep it`, color: 'green' });
+                            setFirstRun(false);
                             setScreen('main');
                         }}
-                        onSkip={() => { setScreen('main'); }}
+                        onSkip={() => {
+                            setFirstRun(false);
+                            setScreen('main');
+                        }}
                     />
                 )}
             </Box>

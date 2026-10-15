@@ -474,4 +474,44 @@ describe('GlobalOverridesMenu', () => {
             stderr.destroy();
         }
     });
+
+    it('right-aligns every setting label on its colon', async () => {
+        const stdin = createMockStdin();
+        const stdout = createMockStdout();
+        const stderr = createMockStdout();
+
+        const instance = render(
+            React.createElement(GlobalOverridesMenu, {
+                settings: DEFAULT_SETTINGS,
+                onUpdate: vi.fn(),
+                onBack: vi.fn()
+            }),
+            {
+                stdin,
+                stdout,
+                stderr,
+                debug: true,
+                exitOnCtrlC: false,
+                patchConsole: false
+            }
+        );
+
+        try {
+            await waitFor(() => {
+                expect(stdout.getOutput()).toContain('Compact Labels:');
+            });
+            const settingRows = stripAnsi(stdout.getOutput().split('Global Overrides').at(-1) ?? '')
+                .split('\n')
+                .filter(line => /^ *[A-Z][A-Za-z ]+: .* - (?:Press|\()/.test(line));
+
+            expect(settingRows.length).toBeGreaterThanOrEqual(8);
+            expect(new Set(settingRows.map(line => line.indexOf(':'))).size).toBe(1);
+        } finally {
+            instance.unmount();
+            instance.cleanup();
+            stdin.destroy();
+            stdout.destroy();
+            stderr.destroy();
+        }
+    });
 });

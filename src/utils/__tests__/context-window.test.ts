@@ -49,6 +49,13 @@ describe('getContextWindowMetrics', () => {
         });
     });
 
+    it('rounds tokens derived from a fractional used_percentage', () => {
+        const metrics = getContextWindowMetrics({ context_window: { context_window_size: 200000, used_percentage: 0.35 } });
+
+        expect(metrics.usedTokens).toBe(700);
+        expect(metrics.contextLengthTokens).toBe(700);
+    });
+
     it('derives token usage from used_percentage when current_usage is missing', () => {
         const metrics = getContextWindowMetrics({
             context_window: {

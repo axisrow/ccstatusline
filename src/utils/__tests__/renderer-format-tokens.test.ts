@@ -34,6 +34,12 @@ describe('formatTokens', () => {
         expect(formatTokens(999949)).toBe('999.9k');
     });
 
+    it('formats billions with a B suffix instead of thousands of M', () => {
+        expect(formatTokens(1246400000)).toBe('1.2B');
+        expect(formatTokens(999949999)).toBe('999.9M');
+        expect(formatTokens(999950000)).toBe('1.0B');
+    });
+
     it('uses whole-number k and rolls up to M at decimals=0', () => {
         expect(formatTokens(711000, {}, 0)).toBe('711k');
         expect(formatTokens(999499, {}, 0)).toBe('999k');
