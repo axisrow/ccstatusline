@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 
 import type { WidgetEditorProps } from '../../types/Widget';
 import { shouldInsertInput } from '../../utils/input-guards';
+import { BlinkingCursor } from '../shared/BlinkingCursor';
 
 const CurrentWorkingDirEditor: React.FC<WidgetEditorProps> = ({ widget, onComplete, onCancel, action }) => {
     const [segmentsInput, setSegmentsInput] = useState(widget.metadata?.segments ?? '');
@@ -47,7 +48,7 @@ const CurrentWorkingDirEditor: React.FC<WidgetEditorProps> = ({ widget, onComple
                 <Box>
                     <Text>Enter number of segments to display (blank for full path): </Text>
                     <Text>{segmentsInput}</Text>
-                    <Text backgroundColor='gray' color='black'>{' '}</Text>
+                    <BlinkingCursor>{' '}</BlinkingCursor>
                 </Box>
                 <Text dimColor>Press Enter to save, ESC to cancel</Text>
             </Box>

@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 
 import type { WidgetEditorProps } from '../../types/Widget';
 import { shouldInsertInput } from '../../utils/input-guards';
+import { BlinkingCursor } from '../shared/BlinkingCursor';
 
 const CustomSymbolEditor: React.FC<WidgetEditorProps> = ({ widget, onComplete, onCancel }) => {
     const [symbol, setSymbol] = useState(widget.customSymbol ?? '');
@@ -47,9 +48,9 @@ const CustomSymbolEditor: React.FC<WidgetEditorProps> = ({ widget, onComplete, o
                 Enter custom symbol:
                 {' '}
                 {symbol ? (
-                    <Text inverse>{symbol}</Text>
+                    <BlinkingCursor inverse>{symbol}</BlinkingCursor>
                 ) : (
-                    <Text inverse dimColor>(empty)</Text>
+                    <BlinkingCursor inverse dimColor>(empty)</BlinkingCursor>
                 )}
             </Text>
             <Text dimColor>Type any character or emoji, Backspace clear, Enter save, ESC cancel</Text>

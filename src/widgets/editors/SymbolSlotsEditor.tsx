@@ -8,6 +8,7 @@ import React, { useState } from 'react';
 import type { WidgetEditorProps } from '../../types/Widget';
 import { getVisibleWidth } from '../../utils/ansi';
 import { shouldInsertInput } from '../../utils/input-guards';
+import { BlinkingCursor } from '../shared/BlinkingCursor';
 import {
     getSlotSymbol,
     setSlotSymbol,
@@ -80,10 +81,10 @@ const SymbolSlotsEditor: React.FC<WidgetEditorProps & { slots: SymbolSlot[] }> =
                             <Text color={isSelected ? 'green' : undefined}>
                                 {`${labelPadding}${slot.label}: `}
                             </Text>
-                            {value ? (
-                                <Text inverse>{value}</Text>
+                            {isSelected ? (
+                                <BlinkingCursor inverse dimColor={!value}>{value || '(none)'}</BlinkingCursor>
                             ) : (
-                                <Text inverse dimColor>(none)</Text>
+                                <Text inverse dimColor={!value}>{value || '(none)'}</Text>
                             )}
                             <Text dimColor>{` (default: ${slot.defaultSymbol})`}</Text>
                         </Box>

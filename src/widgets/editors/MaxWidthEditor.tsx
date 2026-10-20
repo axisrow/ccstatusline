@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 
 import type { WidgetEditorProps } from '../../types/Widget';
 import { shouldInsertInput } from '../../utils/input-guards';
+import { BlinkingCursor } from '../shared/BlinkingCursor';
 
 const MaxWidthEditor: React.FC<WidgetEditorProps> = ({ widget, onComplete, onCancel }) => {
     const [widthInput, setWidthInput] = useState(widget.maxWidth?.toString() ?? '');
@@ -34,7 +35,7 @@ const MaxWidthEditor: React.FC<WidgetEditorProps> = ({ widget, onComplete, onCan
             <Box>
                 <Text>Enter max width (blank for no limit): </Text>
                 <Text>{widthInput}</Text>
-                <Text backgroundColor='gray' color='black'>{' '}</Text>
+                <BlinkingCursor>{' '}</BlinkingCursor>
             </Box>
             <Text dimColor>Press Enter to save, ESC to cancel</Text>
         </Box>

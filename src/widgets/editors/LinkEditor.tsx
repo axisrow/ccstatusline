@@ -11,6 +11,7 @@ import type {
 } from '../../types/Widget';
 import { shouldInsertInput } from '../../utils/input-guards';
 import { isValidHttpUrl } from '../Link';
+import { BlinkingCursor } from '../shared/BlinkingCursor';
 
 function toEditorMetadata(widget: WidgetItem): { url: string; text: string } {
     const url = widget.metadata?.url ?? '';
@@ -111,7 +112,7 @@ const LinkEditor: React.FC<WidgetEditorProps> = ({ widget, onComplete, onCancel,
             <Text>
                 {prompt}
                 {activeValue.slice(0, activeCursor)}
-                <Text backgroundColor='gray' color='black'>{activeValue[activeCursor] ?? ' '}</Text>
+                <BlinkingCursor>{activeValue[activeCursor] ?? ' '}</BlinkingCursor>
                 {activeValue.slice(activeCursor + 1)}
             </Text>
             {isUrlMode ? (
