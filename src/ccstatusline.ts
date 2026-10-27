@@ -25,6 +25,11 @@ import {
     getPackageVersion,
     getTerminalWidth
 } from './utils/terminal';
+import { ensureWindowsUtf8CodePage } from './utils/windows-code-page';
+
+// Captured before --config is parsed out of process.argv, so the dev reload
+// supervisor can relaunch with exactly the arguments it was started with
+const LAUNCH_ARGS = process.argv.slice(2);
 
 async function readStdin(): Promise<string | null> {
     // Check if stdin is a TTY (terminal) - if it is, there's no piped data
@@ -52,19 +57,6 @@ async function readStdin(): Promise<string | null> {
         return chunks.join('');
     } catch {
         return null;
-    }
-}
-
-async function ensureWindowsUtf8CodePage() {
-    if (process.platform !== 'win32') {
-        return;
-    }
-
-    try {
-        const { execFileSync } = await import('child_process');
-        execFileSync('chcp.com', ['65001'], { stdio: 'ignore', windowsHide: true });
-    } catch {
-        // Ignore failures to preserve statusline output even in restricted shells.
     }
 }
 
@@ -180,7 +172,7 @@ async function main() {
 
     // Check if we're in a piped/non-TTY environment first
     if (!process.stdin.isTTY) {
-        await ensureWindowsUtf8CodePage();
+        ensureWindowsUtf8CodePage();
 
         // We're receiving piped input
         const input = await readStdin();
@@ -204,9 +196,19 @@ async function main() {
         }
     } else {
         // Interactive mode - run TUI
+        // With CCSTATUSLINE_DEV_RELOAD=1 this process only supervises: it runs
+        // the TUI in child processes and restarts one whenever ctrl+r asks
+        if (process.env.CCSTATUSLINE_DEV_RELOAD === '1') {
+            const { getDevReloadMode, superviseDevReload } = await import('./utils/dev-reload');
+            if (getDevReloadMode(process.env) === 'supervisor') {
+                process.exit(await superviseDevReload(LAUNCH_ARGS));
+            }
+        }
+
         // First run = settings.json absent; must be captured before this
         // loadSettings() materializes the defaults on disk.
         const firstRun = !existsSync(getConfigPath());
+
         // Remove updatemessage before running TUI
         const settings = await loadSettings();
         if (settings.updatemessage) {

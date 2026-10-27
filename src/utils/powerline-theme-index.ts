@@ -13,7 +13,8 @@ export interface PowerlineThemeSlots {
 
 // Theme color slot of each widget in a line, numbered from startSlot. A widget
 // merged into the previous shown widget shares its slot; separators and hidden
-// widgets get none. nextSlot is where the following line continues.
+// widgets get none. A merge carries past a hidden widget only if that widget is
+// merged onward too. nextSlot is where the following line continues.
 export function assignPowerlineThemeSlots(
     widgets: WidgetItem[],
     startSlot = 0,
@@ -29,6 +30,9 @@ export function assignPowerlineThemeSlots(
         }
 
         if (!isShown(index)) {
+            if (!widget.merge) {
+                previousVisibleWidget = null;
+            }
             return null;
         }
 

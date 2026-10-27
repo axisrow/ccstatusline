@@ -1,4 +1,4 @@
-export { createUsageMemoryCache, fetchUsageData } from './usage-fetch';
+export { createUsageMemoryCache, fetchUsageData, isStaleUsageFallback } from './usage-fetch';
 export {
     formatUsageDuration,
     formatUsageResetAt,

@@ -10,6 +10,7 @@ import {
     type Settings
 } from '../types/Settings';
 
+import type { SkippedWidgetHooks } from './hooks';
 import {
     migrateConfig,
     needsMigration
@@ -28,9 +29,14 @@ const readlink = fs.promises.readlink;
 const realpath = fs.promises.realpath;
 const stat = fs.promises.stat;
 
-const DEFAULT_SETTINGS_PATH = path.join(os.homedir(), '.config', 'ccstatusline', 'settings.json');
+// Resolved on every call, not once at import time: tests replace os.homedir()
+// with a temp directory after this module has loaded, and the default path has
+// to follow so an install test can never touch the developer's real file.
+function getDefaultSettingsPath(): string {
+    return path.join(os.homedir(), '.config', 'ccstatusline', 'settings.json');
+}
 
-let settingsPath = DEFAULT_SETTINGS_PATH;
+let settingsPath = getDefaultSettingsPath();
 let lastLoadError: string | null = null;
 
 export function getConfigLoadError(): string | null {
@@ -38,7 +44,7 @@ export function getConfigLoadError(): string | null {
 }
 
 export function initConfigPath(filePath?: string): void {
-    settingsPath = filePath ? path.resolve(filePath) : DEFAULT_SETTINGS_PATH;
+    settingsPath = filePath ? path.resolve(filePath) : getDefaultSettingsPath();
 }
 
 export function getConfigPath(): string {
@@ -46,7 +52,7 @@ export function getConfigPath(): string {
 }
 
 export function isCustomConfigPath(): boolean {
-    return settingsPath !== DEFAULT_SETTINGS_PATH;
+    return settingsPath !== getDefaultSettingsPath();
 }
 
 interface SettingsPaths {
@@ -271,7 +277,8 @@ export interface LoadedSettings {
     loadError: string | null;
 }
 
-export async function saveSettingsTo(configPath: string, settings: Settings): Promise<void> {
+/** Saves settings and syncs widget hooks; returns the hooks the sync couldn't add, if any. */
+export async function saveSettingsTo(configPath: string, settings: Settings): Promise<SkippedWidgetHooks | null> {
     const paths = getSettingsPathsFor(configPath);
 
     // Always include version when saving
@@ -285,11 +292,14 @@ export async function saveSettingsTo(configPath: string, settings: Settings): Pr
     // Sync widget hooks to Claude settings
     try {
         const { syncWidgetHooks } = await import('./hooks');
-        await syncWidgetHooks(settings);
-    } catch { /* ignore hook sync failures */ }
+        return await syncWidgetHooks(settings);
+    } catch {
+        // Ignore hook sync failures
+        return null;
+    }
 }
 
-export async function saveSettings(settings: Settings): Promise<void> {
+export async function saveSettings(settings: Settings): Promise<SkippedWidgetHooks | null> {
     return saveSettingsTo(settingsPath, settings);
 }
 
