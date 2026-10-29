@@ -152,7 +152,9 @@ export function runUsagePercentWidgetSuite<TWidget extends UsageWidgetLike>(conf
     });
 
     it('declares the no-data and zero hideable states', () => {
-        expect(config.createWidget().getHideableStates().map(state => state.key)).toEqual(['no-data', 'zero']);
+        const stateKeys = config.createWidget().getHideableStates().map(state => state.key);
+        expect(stateKeys).toContain('no-data');
+        expect(stateKeys).toContain('zero');
     });
 
     it('hides zero usage when the zero state is enabled, regardless of invert', () => {

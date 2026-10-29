@@ -62,9 +62,9 @@ function findMostRecentBlockStartTime(
     const now = new Date();
 
     // Step 1: Find all JSONL files with their modification times
-    // Use forward slashes for glob patterns on all platforms (tinyglobby requirement)
-    const pattern = path.posix.join(rootDir.replace(/\\/g, '/'), 'projects', '**', '*.jsonl');
-    const files = globSync([pattern], {
+    // Keep the pattern relative to cwd: inside a pattern, characters a directory
+    // name can contain, such as ( ) [ ] { } * ?, are glob syntax
+    const files = globSync(['projects/**/*.jsonl'], {
         absolute: true,  // Ensure we get absolute paths
         cwd: rootDir     // Set working directory to rootDir
     });
@@ -126,6 +126,7 @@ function findMostRecentBlockStartTime(
         }
 
         // Look for a session gap in this chunk
+        const isLastChunk = lookbackHours === lookbackChunks[lookbackChunks.length - 1];
         continuousWorkStart = mostRecentTimestamp;
         for (let i = 1; i < timestamps.length; i++) {
             const currentTimestamp = timestamps[i];
@@ -137,8 +138,11 @@ function findMostRecentBlockStartTime(
             const gap = previousTimestamp.getTime() - currentTimestamp.getTime();
 
             if (gap >= sessionDurationMs) {
-                // Found a true session boundary
-                foundSessionGap = true;
+                // Transcripts last written before the cutoff weren't read, and
+                // their rows could fill the part of this gap before it. Unless the
+                // part after the cutoff spans a session by itself, look further back
+                foundSessionGap = isLastChunk
+                    || previousTimestamp.getTime() - cutoffTime.getTime() >= sessionDurationMs;
                 break;
             }
 
@@ -151,7 +155,7 @@ function findMostRecentBlockStartTime(
         }
 
         // If this was our last chunk, use what we have
-        if (lookbackHours === lookbackChunks[lookbackChunks.length - 1]) {
+        if (isLastChunk) {
             break;
         }
     }
@@ -211,6 +215,13 @@ function buildCurrentBlockResult(
     }
 
     return null;
+}
+
+interface TranscriptRow {
+    timestamp?: string;
+    isSidechain?: boolean;
+    isApiErrorMessage?: boolean;
+    message?: { usage?: { input_tokens?: number; output_tokens?: number } };
 }
 
 /**
@@ -335,11 +346,7 @@ async function getAllTimestampsFromFileAsync(filePath: string): Promise<Date[]> 
 }
 
 function collectTimestampFromLine(line: string, timestamps: Date[]): void {
-    const json = parseJsonlLine(line) as {
-        timestamp?: string;
-        isSidechain?: boolean;
-        message?: { usage?: { input_tokens?: number; output_tokens?: number } };
-    } | null;
+    const json = parseJsonlLine(line) as TranscriptRow | null;
     if (!json) {
         return;
     }
@@ -355,6 +362,11 @@ function collectTimestampFromLine(line: string, timestamps: Date[]): void {
         return;
 
     if (json.isSidechain === true)
+        return;
+
+    // Claude Code logs a rejected request (a usage limit, an expired
+    // login, an outage) as a row with all-zero usage; nothing was served
+    if (json.isApiErrorMessage === true)
         return;
 
     const timestamp = json.timestamp;

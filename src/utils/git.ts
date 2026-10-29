@@ -579,27 +579,28 @@ export function runGitArgs(args: string[], context: RenderContext, cacheCommand?
         return persistentEntry.output;
     }
 
+    let result: string | null;
     try {
         // Hardening, filter overrides and the env snapshot (daemon #18) all
         // live in execGit; GIT_OPTIONAL_LOCKS is applied inside it too.
         const output = execGit(args, cwd, context.env).trimEnd();
 
-        const result = output.length > 0 ? output : null;
-        const entry = createCacheEntry(result, metadata, now);
-        gitCommandCache.set(memoryCacheKey, entry);
-        capMap(gitCommandCache, GIT_CACHE_MAX_ENTRIES);
-        if (cwd) {
-            recordExecutedGitCommand(cwd, cacheToken, args);
-        }
-        writePersistentCacheEntry(metadata, persistentCacheKey, cwd, entry);
-        return result;
+        result = output.length > 0 ? output : null;
     } catch {
-        const entry = createCacheEntry(null, metadata, now);
-        gitCommandCache.set(memoryCacheKey, entry);
-        capMap(gitCommandCache, GIT_CACHE_MAX_ENTRIES);
-        writePersistentCacheEntry(metadata, persistentCacheKey, cwd, entry);
-        return null;
+        result = null;
     }
+
+    // Stamped after the run, so a command slower than the TTL (status in a
+    // large repository, or one cut off by the timeout) still gets the full TTL
+    // of reuse rather than expiring the moment it returns.
+    const entry = createCacheEntry(result, metadata, Date.now());
+    gitCommandCache.set(memoryCacheKey, entry);
+    capMap(gitCommandCache, GIT_CACHE_MAX_ENTRIES);
+    if (cwd) {
+        recordExecutedGitCommand(cwd, cacheToken, args);
+    }
+    writePersistentCacheEntry(metadata, persistentCacheKey, cwd, entry);
+    return result;
 }
 
 /**
