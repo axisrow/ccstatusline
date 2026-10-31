@@ -76,13 +76,16 @@ render_one_shot() {
     fi
     out_tmp=$(mktemp "${TMPDIR:-/tmp}/ccstatusline-ipc-render.XXXXXX") || return 1
     if [ -f "${payload_tmp:-}" ]; then
-        "$renderer_bin" "$renderer_script" < "$payload_tmp" > "$out_tmp" &
+        stdin_src=$payload_tmp
     else
-        # POSIX gives an asynchronous list a /dev/null stdin unless an
-        # explicit redirection overrides it: without <&0 the renderer would
-        # read an empty payload on every pre-buffer failure.
-        "$renderer_bin" "$renderer_script" <&0 > "$out_tmp" &
+        # POSIX sh gives asynchronous lists a /dev/null stdin before any
+        # redirection, and dash resolves <&0 against that substituted fd —
+        # the only portable way to hand the live stdin to a background
+        # renderer is to buffer it first.
+        stdin_src=$(mktemp "${TMPDIR:-/tmp}/ccstatusline-ipc-stdin.XXXXXX") || return 1
+        cat > "$stdin_src"
     fi
+    "$renderer_bin" "$renderer_script" < "$stdin_src" > "$out_tmp" &
     render_pid=$!
     # The watchdog's stdio must not touch this script's stdout/stderr: when
     # the render finishes early, killing the watchdog subshell orphans its
@@ -208,7 +211,7 @@ context=$(
 # token still travels only through the curl config on stdin.
 payload_tmp=$(mktemp "${TMPDIR:-/tmp}/ccstatusline-ipc-payload.XXXXXX") || fail "cannot buffer stdin"
 body_tmp=$(mktemp "${TMPDIR:-/tmp}/ccstatusline-ipc-body.XXXXXX") || { rm -f "$payload_tmp"; fail "cannot create temp file"; }
-cleanup() { rm -f "$payload_tmp" "$body_tmp" "${out_tmp:-}"; }
+cleanup() { rm -f "$payload_tmp" "$body_tmp" "${out_tmp:-}" "${stdin_tmp:-}"; }
 trap cleanup EXIT
 # Signal exits must not resume the retry loop (a handler without exit would
 # return into the backoff sleep); the EXIT trap still removes the temp files.
