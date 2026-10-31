@@ -28,8 +28,7 @@ let consoleErrorSpy: MockInstance<typeof console.error>;
 interface DiskConfig {
     version?: number;
     lines?: WidgetItem[][];
-    compactThreshold?: number;
-    flexMode?: string;
+    globalBold?: boolean;
     powerline?: { enabled?: boolean };
     numberFormat?: { token?: { style?: string } };
 }
@@ -269,15 +268,17 @@ describe('cli commands', () => {
     });
 
     describe('set', () => {
+        // compactThreshold died with the terminal-width modes (upstream
+        // v2.2.33): scalar set examples moved to a live global option.
         it('sets a scalar global option and is idempotent', async () => {
-            const first = await executeCli(['set', 'compactThreshold', '40']);
+            const first = await executeCli(['set', 'globalBold', 'true']);
             const before = readDiskRaw();
-            const second = await executeCli(['set', 'compactThreshold', '40']);
+            const second = await executeCli(['set', 'globalBold', 'true']);
 
             expect(first.exitCode).toBe(0);
             expect(second.exitCode).toBe(0);
             expect(readDiskRaw()).toBe(before);
-            expect(readDisk().compactThreshold).toBe(40);
+            expect(readDisk().globalBold).toBe(true);
         });
 
         it('sets a nested option', async () => {
@@ -298,7 +299,7 @@ describe('cli commands', () => {
             writeDisk(JSON.stringify({ version: CURRENT_VERSION }));
             const before = readDiskRaw();
 
-            const result = await executeCli(['set', 'compactThreshold', '200']);
+            const result = await executeCli(['set', 'colorLevel', '9']);
 
             expect(result.exitCode).toBe(1);
             expect(result.message).toContain('nothing was written');

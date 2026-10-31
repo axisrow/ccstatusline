@@ -108,7 +108,6 @@ import {
     RefreshIntervalMenu,
     StatusLinePreview,
     TerminalOptionsMenu,
-    TerminalWidthMenu,
     UninstallMenu,
     UpdateCheckerMenu,
     buildMainMenuItems,
@@ -140,7 +139,6 @@ type AppScreen = 'main'
     | 'theme'
     | 'themeLines'
     | 'lineTheme'
-    | 'terminalWidth'
     | 'terminalConfig'
     | 'globalOverrides'
     | 'confirm'
@@ -575,7 +573,6 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
     const [fontInstallMessage, setFontInstallMessage] = useState<string | null>(null);
     const [existingStatusLine, setExistingStatusLine] = useState<string | null>(null);
     const [flashMessage, setFlashMessage] = useState<FlashMessage | null>(null);
-    const [previewIsTruncated, setPreviewIsTruncated] = useState(false);
     const [currentRefreshInterval, setCurrentRefreshInterval] = useState<number | null>(null);
     const [supportsRefreshInterval] = useState(() => isClaudeCodeVersionAtLeast('2.1.97'));
     const [commandAvailability] = useState(() => getPackageCommandAvailability());
@@ -1408,7 +1405,6 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
                 lines={previewLines}
                 terminalWidth={terminalWidth}
                 settings={settings}
-                onTruncationChange={setPreviewIsTruncated}
             />
 
             <Box marginTop={1}>
@@ -1427,9 +1423,8 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
                         initialSelection={menuSelections.main}
                         onSelectionChange={(index) => { setMenuSelections(prev => ({ ...prev, main: index })); }}
                         powerlineFontStatus={powerlineFontStatus}
-                        settings={settings}
                         installation={effectiveInstallation}
-                        previewIsTruncated={previewIsTruncated}
+                        settings={settings}
                     />
                 )}
                 {screen === 'lines' && (
@@ -1542,24 +1537,9 @@ export const App: React.FC<AppProps> = ({ firstRun: firstRunProp = false }) => {
                         onUpdate={(updatedSettings) => {
                             setSettings(updatedSettings);
                         }}
-                        onBack={(target?: string) => {
-                            if (target === 'width') {
-                                setScreen('terminalWidth');
-                            } else {
-                                setMenuSelections(prev => ({ ...prev, main: mainMenuIndex('terminalConfig') }));
-                                setScreen('main');
-                            }
-                        }}
-                    />
-                )}
-                {screen === 'terminalWidth' && (
-                    <TerminalWidthMenu
-                        settings={settings}
-                        onUpdate={(updatedSettings) => {
-                            setSettings(updatedSettings);
-                        }}
                         onBack={() => {
-                            setScreen('terminalConfig');
+                            setMenuSelections(prev => ({ ...prev, main: mainMenuIndex('terminalConfig') }));
+                            setScreen('main');
                         }}
                     />
                 )}

@@ -12,6 +12,8 @@ import type { StatusJSON } from '../../types/StatusJSON';
 import type { WidgetItem } from '../../types/Widget';
 import * as usage from '../../utils/usage';
 import { BlockResetTimerWidget } from '../../widgets/BlockResetTimer';
+import { SessionUsageWidget } from '../../widgets/SessionUsage';
+import { WeeklyUsageWidget } from '../../widgets/WeeklyUsage';
 import {
     extractUsageDataFromRateLimits,
     hasUsageDependentWidgets,
@@ -313,6 +315,34 @@ describe('usage prefetch', () => {
         expect(mockFetchUsageData.mock.calls.length).toBe(0);
     });
 
+    it('renders valid weekly usage when the shared response reports an expired session window', async () => {
+        const partial: UsageData = { weeklyUsage: 40, weeklyResetAt: '2030-01-07T00:00:00.000Z', error: 'rate-limited' };
+        mockFetchUsageData.mockResolvedValue(partial);
+        const session: WidgetItem = { id: 'session', type: 'session-usage' };
+        const weekly: WidgetItem = { id: 'weekly', type: 'weekly-usage', rawValue: true };
+
+        const usageData = await prefetchUsageDataIfNeeded([[session, weekly]]);
+
+        expect(mockFetchUsageData.mock.calls).toEqual([[{ requiredFields: ['sessionUsage', 'weeklyUsage'], cache: anyCacheMatcher() }]]);
+        expect(usageData).toEqual(partial);
+        const context = { isPreview: false, usageData: usageData ?? undefined };
+        expect(new WeeklyUsageWidget().render(weekly, context, DEFAULT_SETTINGS)).toBe('40.0%');
+        expect(new SessionUsageWidget().render(session, context, DEFAULT_SETTINGS)).toBe('[Rate limited]');
+    });
+
+    it('keeps valid reset data when suppressing an error for another expired window', async () => {
+        const weeklyResetAt = '2030-01-07T00:00:00.000Z';
+        mockFetchUsageData.mockResolvedValue({ weeklyUsage: 40, weeklyResetAt, error: 'rate-limited' });
+
+        const usageData = await prefetchUsageDataIfNeeded(makeLines([
+            { id: 'session', type: 'reset-timer' },
+            { id: 'weekly', type: 'weekly-reset-timer' }
+        ]));
+
+        expect(mockFetchUsageData.mock.calls).toEqual([[{ requiredFields: ['sessionResetAt', 'weeklyResetAt'], cache: anyCacheMatcher() }]]);
+        expect(usageData).toEqual({ weeklyUsage: 40, weeklyResetAt });
+    });
+
     it('suppresses API errors when reset timer widgets are only missing reset data', async () => {
         mockFetchUsageData.mockResolvedValue({ error: 'rate-limited' });
 
@@ -334,6 +364,78 @@ describe('usage prefetch', () => {
         });
         expect(mockFetchUsageData.mock.calls).toEqual([
             [{ requiredFields: ['sessionResetAt'], cache: anyCacheMatcher() }]
+        ]);
+    });
+
+    it('reads the forecast widgets\' data from rate_limits without fetching', async () => {
+        const lines = makeLines(
+            [{ id: '1', type: 'block-forecast' }, { id: '2', type: 'block-limit-timer' }]
+        );
+
+        const usageData = await prefetchUsageDataIfNeeded(lines, { rate_limits: { five_hour: { used_percentage: 42, resets_at: 1774020000 } } });
+
+        expect(usageData).toEqual({ sessionUsage: 42, sessionResetAt: epochToIso(1774020000) });
+        expect(mockFetchUsageData.mock.calls.length).toBe(0);
+    });
+
+    it.each(['block-forecast', 'block-limit-timer'])('fetches the reset time %s needs and keeps quiet when that fails', async (type) => {
+        mockFetchUsageData.mockResolvedValue({ error: 'rate-limited' });
+
+        const lines = makeLines([{ id: '1', type }]);
+
+        const usageData = await prefetchUsageDataIfNeeded(lines, { rate_limits: { five_hour: { used_percentage: 42 } } });
+
+        expect(usageData).toEqual({ sessionUsage: 42 });
+        expect(mockFetchUsageData.mock.calls).toEqual([
+            [{ requiredFields: ['sessionResetAt'], cache: anyCacheMatcher() }]
+        ]);
+    });
+
+    it('reads Weekly Limit Timer\'s data from rate_limits without fetching', async () => {
+        const lines = makeLines([{ id: '1', type: 'weekly-limit-timer' }]);
+
+        const usageData = await prefetchUsageDataIfNeeded(lines, { rate_limits: { seven_day: { used_percentage: 72, resets_at: 1776211200 } } });
+
+        expect(usageData).toEqual({ weeklyUsage: 72, weeklyResetAt: epochToIso(1776211200) });
+        expect(mockFetchUsageData.mock.calls.length).toBe(0);
+    });
+
+    it('fetches the weekly reset time Weekly Limit Timer needs and keeps quiet when that fails', async () => {
+        mockFetchUsageData.mockResolvedValue({ error: 'rate-limited' });
+
+        const lines = makeLines([{ id: '1', type: 'weekly-limit-timer' }]);
+
+        const usageData = await prefetchUsageDataIfNeeded(lines, { rate_limits: { seven_day: { used_percentage: 72 } } });
+
+        expect(usageData).toEqual({ weeklyUsage: 72 });
+        expect(mockFetchUsageData.mock.calls).toEqual([
+            [{ requiredFields: ['weeklyResetAt'], cache: anyCacheMatcher() }]
+        ]);
+    });
+
+    it('fetches Fable\'s percent for Weekly Fable Limit Timer, using the all-models reset when Fable has none', async () => {
+        mockFetchUsageData.mockResolvedValue({ fableUsage: 8 });
+
+        const lines = makeLines([{ id: '1', type: 'fable-weekly-limit-timer' }]);
+
+        const usageData = await prefetchUsageDataIfNeeded(lines, { rate_limits: { seven_day: { used_percentage: 72, resets_at: 1776211200 } } });
+
+        expect(usageData).toEqual({ weeklyUsage: 72, weeklyResetAt: epochToIso(1776211200), fableUsage: 8 });
+        expect(mockFetchUsageData.mock.calls).toEqual([
+            [{ requiredFields: ['fableUsage'], cache: anyCacheMatcher() }]
+        ]);
+    });
+
+    it('keeps quiet when the fetch made only for Weekly Fable Limit Timer fails', async () => {
+        mockFetchUsageData.mockResolvedValue({ error: 'rate-limited' });
+
+        const lines = makeLines([{ id: '1', type: 'fable-weekly-limit-timer' }]);
+
+        const usageData = await prefetchUsageDataIfNeeded(lines, { rate_limits: { seven_day: { used_percentage: 72, resets_at: 1776211200 } } });
+
+        expect(usageData).toEqual({ weeklyUsage: 72, weeklyResetAt: epochToIso(1776211200) });
+        expect(mockFetchUsageData.mock.calls).toEqual([
+            [{ requiredFields: ['fableUsage'], cache: anyCacheMatcher() }]
         ]);
     });
 

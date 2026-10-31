@@ -31,12 +31,15 @@ import {
     renderStatusLine
 } from './utils/renderer';
 import { advanceGlobalSeparatorIndex } from './utils/separator-index';
+import { computeSessionForecastIfNeeded } from './utils/session-forecast-prefetch';
+import { getDefaultSessionUsageHistoryDeps } from './utils/session-usage-history';
 import { getSkillsMetrics } from './utils/skills';
 import {
     getWidgetSpeedWindowSeconds,
     isWidgetSpeedWindowEnabled
 } from './utils/speed-window';
 import { sanitizeTerminalText } from './utils/terminal-sanitize';
+import { fetchAccountEmail } from './utils/usage';
 import { prefetchUsageDataIfNeeded } from './utils/usage-prefetch';
 
 export interface RenderedStatusLines {
@@ -81,7 +84,8 @@ export async function renderStatusLines(
     data: StatusJSON,
     loaded: LoadedSettings,
     invocation: RenderInvocation,
-    prefetch: RenderPrefetch = {}
+    prefetch: RenderPrefetch = {},
+    rawData?: Record<string, unknown>
 ): Promise<RenderedStatusLines> {
     const { settings, loadError: configError } = loaded;
 
@@ -97,6 +101,7 @@ export async function renderStatusLines(
     const hasThinkingEffortWidget = lines.some(line => line.some(item => item.type === 'thinking-effort'));
     const hasSessionNameWidget = lines.some(line => line.some(item => item.type === 'session-name'));
     const hasLastTurnTokensWidget = lines.some(line => line.some(item => item.type === 'tokens-last-turn'));
+    const hasAccountEmailWidget = lines.some(line => line.some(item => item.type === 'claude-account-email'));
     const needsTranscriptThinkingEffort = hasThinkingEffortWidget
         && (!data.effort || !('level' in data.effort));
     const requestedSpeedWindows = new Set<number>();
@@ -122,15 +127,17 @@ export async function renderStatusLines(
                 includeLastTurnTokens: hasLastTurnTokensWidget
             })
             : Promise.resolve(null);
-    const [transcriptAnalysis, usageData, claudeStatusData] = await Promise.all([
+    const [transcriptAnalysis, usageData, claudeStatusData, accountEmail] = await Promise.all([
         transcriptAnalysisPromise,
         prefetch.usageData !== undefined
             ? Promise.resolve(prefetch.usageData)
             : prefetchUsageDataIfNeeded(lines, data),
         prefetch.claudeStatusData !== undefined
             ? Promise.resolve(prefetch.claudeStatusData)
-            : prefetchClaudeStatusIfNeeded(lines)
+            : prefetchClaudeStatusIfNeeded(lines),
+        hasAccountEmailWidget ? fetchAccountEmail() : Promise.resolve(undefined)
     ]);
+    const sessionForecast = computeSessionForecastIfNeeded(lines, usageData, getDefaultSessionUsageHistoryDeps(data));
 
     // --- Start of the synchronous formatting section (chalk setup through
     // pre-render and line formatting; the only awaits below it are the
@@ -159,11 +166,14 @@ export async function renderStatusLines(
     // Create render context
     const context: RenderContext = {
         data,
+        rawData,
         tokenMetrics,
         speedMetrics,
         windowedSpeedMetrics,
         usageData,
+        sessionForecast,
         claudeStatusData,
+        accountEmail,
         sessionDuration,
         transcriptSessionName: hasSessionNameWidget
             ? (transcriptAnalysis?.sessionName ?? null)

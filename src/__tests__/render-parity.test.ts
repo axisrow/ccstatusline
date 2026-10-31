@@ -162,7 +162,15 @@ describe('render parity vs pre-refactor CLI golden bytes', () => {
                 lines: scenario.lines,
                 ...scenario.extraSettings
             }, scenario.width);
-            const golden = fs.readFileSync(path.join(FIXTURES_DIR, `${scenario.name}.stdout.txt`), 'utf-8');
+            const goldenPath = path.join(FIXTURES_DIR, `${scenario.name}.stdout.txt`);
+            // UPDATE_RENDER_PARITY_GOLDENS=1 re-captures the goldens after a
+            // sync changed the shared renderer's bytes (upstream rendering
+            // evolves); the normal run then pins the new bytes.
+            if (process.env.UPDATE_RENDER_PARITY_GOLDENS === '1') {
+                fs.writeFileSync(goldenPath, text);
+                return;
+            }
+            const golden = fs.readFileSync(goldenPath, 'utf-8');
             expect(text).toBe(golden);
         }
     );
@@ -178,7 +186,12 @@ describe('render parity vs pre-refactor CLI golden bytes', () => {
             env: {},
             terminalWidth: 80
         });
-        const golden = fs.readFileSync(path.join(FIXTURES_DIR, 's6-malformed-json.stdout.txt'), 'utf-8');
+        const goldenPath = path.join(FIXTURES_DIR, 's6-malformed-json.stdout.txt');
+        if (process.env.UPDATE_RENDER_PARITY_GOLDENS === '1') {
+            fs.writeFileSync(goldenPath, text + '\n');
+            return;
+        }
+        const golden = fs.readFileSync(goldenPath, 'utf-8');
         expect(text + '\n').toBe(golden);
     });
 

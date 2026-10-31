@@ -173,8 +173,9 @@ describe('Terminal Options color level warning', () => {
             for (const label of ['🧩 Presets', '🎨 Edit Colors', '🌈 Theme', '🧶 Line Themes', '⚡ Powerline Setup', '💻 Terminal Options']) {
                 await pressKey(rendered, KEYS.down, `▶  ${label}`);
             }
-            await pressKey(rendered, KEYS.enter, '▶  ◱ Terminal Width');
-            await pressKey(rendered, KEYS.down, '▶  ▓ Color Level');
+            // Upstream v2.2.33 removed the Terminal Width row: Color Level is
+            // the screen's first (and only) option now.
+            await pressKey(rendered, KEYS.enter, '▶  ▓ Color Level');
             await pressKey(rendered, KEYS.enter, 'Custom colors detected!');
 
             expect(rendered.getFrame()).toContain('Continue?');

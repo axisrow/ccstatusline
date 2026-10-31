@@ -1,4 +1,11 @@
-export { createUsageMemoryCache, fetchUsageData, isStaleUsageFallback } from './usage-fetch';
+export {
+    createUsageMemoryCache,
+    fetchAccountEmail,
+    fetchUsageData,
+    getUsageFetchedAtMs,
+    getUsageLoginFingerprint,
+    isStaleUsageFallback
+} from './usage-fetch';
 export {
     formatUsageDuration,
     formatUsageResetAt,

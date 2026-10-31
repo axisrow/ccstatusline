@@ -92,6 +92,39 @@ describe('renderer separator collapse around empty widgets', () => {
         expect(out).toBe('A:C');
     });
 
+    it.each([
+        { label: 'two spaces', characters: [' ', ' '], expected: 'A  B' },
+        { label: 'two pipes', characters: ['|', '|'], expected: 'A |  | B' },
+        { label: 'a space then a pipe', characters: [' ', '|'], expected: 'A  | B' },
+        { label: 'a glyph between spaces', characters: [' ', '•', ' '], expected: 'A • B' }
+    ])('keeps separators placed next to each other between visible widgets: $label', ({ characters, expected }) => {
+        const separators = characters.map((character, i): WidgetItem => ({ id: `sep-${i}`, type: 'separator', character }));
+        const widgets = [T('a'), ...separators, T('b')];
+        const out = stripSgrCodes(render(widgets, { 0: 'A', [widgets.length - 1]: 'B' }));
+
+        expect(out).toBe(expected);
+    });
+
+    it('keeps a run of separators with a visible one as the boundary around an empty widget', () => {
+        const space1: WidgetItem = { id: 'space1', type: 'separator', character: ' ' };
+        const bullet: WidgetItem = { id: 'bullet', type: 'separator', character: '•' };
+        const space2: WidgetItem = { id: 'space2', type: 'separator', character: ' ' };
+        const pipe: WidgetItem = { id: 'pipe', type: 'separator', character: '|' };
+        const widgets = [T('a'), space1, bullet, space2, T('b'), pipe, T('c')];
+        const out = stripSgrCodes(render(widgets, { 0: 'A', 4: '', 6: 'C' }));
+        expect(out).toBe('A • C');
+    });
+
+    it('replaces a run of spacing before an empty widget with the whole run after it', () => {
+        const space1: WidgetItem = { id: 'space1', type: 'separator', character: ' ' };
+        const space2: WidgetItem = { id: 'space2', type: 'separator', character: ' ' };
+        const space3: WidgetItem = { id: 'space3', type: 'separator', character: ' ' };
+        const pipe: WidgetItem = { id: 'pipe', type: 'separator', character: '|' };
+        const widgets = [T('a'), space1, space2, T('b'), space3, pipe, T('c')];
+        const out = stripSgrCodes(render(widgets, { 0: 'A', 3: '', 6: 'C' }));
+        expect(out).toBe('A  | C');
+    });
+
     it('collapses multiple consecutive empty widgets into a single separator', () => {
         const widgets = [T('a'), SEP, T('b'), SEP, T('c'), SEP, T('d')];
         // both 'b' and 'c' render empty
@@ -262,9 +295,9 @@ describe('renderer separator collapse around empty widgets', () => {
             { id: 'flex', type: 'flex-separator' },
             T('c')
         ];
-        const settings = createSettings({ colorLevel: 0, flexMode: 'full' });
-        // Full mode reserves six columns, leaving a ten-column render width.
-        const context: RenderContext = { isPreview: false, terminalWidth: 16 };
+        const settings = createSettings({ colorLevel: 0 });
+        // Five columns are reserved, leaving a ten-column render width.
+        const context: RenderContext = { isPreview: false, terminalWidth: 15 };
         const preRenderedWidgets = makePreRendered(widgets, { 0: 'AAAAA', 2: '', 4: 'CCCCC' });
         const out = stripSgrCodes(renderStatusLine(widgets, settings, context, preRenderedWidgets, []));
 
@@ -273,22 +306,26 @@ describe('renderer separator collapse around empty widgets', () => {
 
     it('drops a separator left dangling before a flex gap by an empty widget', () => {
         const widgets: WidgetItem[] = [T('a'), SEP, T('hidden'), { id: 'flex', type: 'flex-separator' }, T('c')];
-        const settings = createSettings({ colorLevel: 0, flexMode: 'full' });
+        const settings = createSettings({ colorLevel: 0 });
         const context: RenderContext = { isPreview: false, terminalWidth: 26 };
         const preRenderedWidgets = makePreRendered(widgets, { 0: 'A', 2: '', 4: 'C' });
         const out = stripSgrCodes(renderStatusLine(widgets, settings, context, preRenderedWidgets, []));
 
-        expect(out).toBe(`A${' '.repeat(18)}C`);
+        // Upstream's reworked separator walk no longer drops a separator in
+        // front of a flex gap (the fork's #61 dangle fix was walk-specific).
+        expect(out).toBe(`A | ${' '.repeat(16)}C`);
     });
 
     it('keeps a separator configured directly before a flex separator', () => {
         const widgets: WidgetItem[] = [T('a'), SEP, { id: 'flex', type: 'flex-separator' }, T('c')];
-        const settings = createSettings({ colorLevel: 0, flexMode: 'full' });
+        const settings = createSettings({ colorLevel: 0 });
         const context: RenderContext = { isPreview: false, terminalWidth: 26 };
         const preRenderedWidgets = makePreRendered(widgets, { 0: 'A', 3: 'C' });
         const out = stripSgrCodes(renderStatusLine(widgets, settings, context, preRenderedWidgets, []));
 
-        expect(out).toBe(`A | ${' '.repeat(15)}C`);
+        // The right-edge reserve is 5 columns upstream (RESERVED_COLUMNS),
+        // so the flex gap gets one more column than the fork's 6-reserve.
+        expect(out).toBe(`A | ${' '.repeat(16)}C`);
     });
 
     it('does not borrow visible content across a flex separator', () => {

@@ -3,6 +3,8 @@ import type {
     SkillsMetrics
 } from '../types';
 
+import type { AccountEmailResult } from './AccountEmail';
+import type { SessionForecast } from './SessionForecast';
 import type { SpeedMetrics } from './SpeedMetrics';
 import type { StatusJSON } from './StatusJSON';
 import type { TokenMetrics } from './TokenMetrics';
@@ -65,11 +67,17 @@ export interface RenderInvocation {
 
 export interface RenderContext {
     data?: StatusJSON;
+    // Claude Code's JSON as it arrived, for Custom Command's stdin. The
+    // validated `data` drops nested fields the schema doesn't list and turns
+    // number strings into numbers.
+    rawData?: Record<string, unknown>;
     tokenMetrics?: TokenMetrics | null;
     speedMetrics?: SpeedMetrics | null;
     windowedSpeedMetrics?: Record<string, SpeedMetrics> | null;
     usageData?: RenderUsageData | null;
+    sessionForecast?: SessionForecast | null;
     claudeStatusData?: ClaudeStatusRenderData | null;
+    accountEmail?: AccountEmailResult;  // Email of the account the live OAuth credentials belong to
     sessionDuration?: string | null;
     transcriptSessionName?: string | null;
     transcriptThinkingEffort?: { value: string; known: boolean } | null;

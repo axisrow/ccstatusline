@@ -76,7 +76,7 @@ interface SpeedRequest {
     inputTokens: number;
     outputTokens: number;
     assistantTimestampMs: number | null;
-    interval: SpeedInterval | null;
+    intervals: SpeedInterval[];
 }
 
 interface CollectedSpeedMetrics {
@@ -106,8 +106,7 @@ interface TokenMetricAccumulator {
 interface TokenMetricState {
     metrics: TokenMetricAccumulator;
     hasStopReasonField: boolean;
-    countedMessageId: string | null;
-    countedOutputTokens: number;
+    countedOutputByMessageId: Map<string, number>;
     lastUsageEntry: TokenMetricEntry | null;
     sawCompactBoundary: boolean;
     boundaryAfterLastUsage: boolean;
@@ -178,8 +177,7 @@ function createTokenMetricState(): TokenMetricState {
     return {
         metrics: createTokenMetricAccumulator(),
         hasStopReasonField: false,
-        countedMessageId: null,
-        countedOutputTokens: 0,
+        countedOutputByMessageId: new Map(),
         lastUsageEntry: null,
         sawCompactBoundary: false,
         boundaryAfterLastUsage: false,
@@ -200,34 +198,29 @@ function createLastTurnTokens(usage: UsageTokens): LastTurnTokens {
     };
 }
 
-// Claude Code writes one JSONL entry per content block (thinking / text / each
-// tool_use) of a single API call, all sharing one message.id and repeating
-// identical prompt-side usage; only output_tokens grows entry to entry.
-// Grouping consecutive counted entries by id keeps one usage per call instead
-// of one per content block (see sirmalloc/ccstatusline#549). Entries without
-// an id each start a new group.
+// Count each message once even when another response separates its content
+// blocks. Keep the maximum output and the first counted context snapshot, as
+// consecutive duplicates did; records without an id still count independently.
 function accumulateCumulativeTokenEntry(
     state: TokenMetricState,
     entry: TokenMetricEntry,
     includePostCompactionUsage: boolean
 ): void {
-    if (state.countedMessageId !== null
-        && entry.messageId !== null
-        && entry.messageId === state.countedMessageId) {
-        // Duplicates only grow output_tokens, so the recency snapshots taken by
-        // the group's first counted entry stay valid: per-block entries repeat
-        // identical prompt-side usage and contextLength never reads output.
-        // Divergent prompt-side usage within one id would need re-snapshotting.
-        const outputDelta = entry.usage.output - state.countedOutputTokens;
+    const previousOutput = entry.messageId === null
+        ? undefined
+        : state.countedOutputByMessageId.get(entry.messageId);
+    if (entry.messageId !== null && previousOutput !== undefined) {
+        const outputDelta = entry.usage.output - previousOutput;
         if (outputDelta > 0) {
-            state.countedOutputTokens = entry.usage.output;
+            state.countedOutputByMessageId.set(entry.messageId, entry.usage.output);
             state.metrics.outputTokens += outputDelta;
         }
         return;
     }
 
-    state.countedMessageId = entry.messageId;
-    state.countedOutputTokens = entry.usage.output;
+    if (entry.messageId !== null) {
+        state.countedOutputByMessageId.set(entry.messageId, entry.usage.output);
+    }
     accumulateTokenMetricEntry(state.metrics, entry, includePostCompactionUsage);
 }
 
@@ -279,8 +272,7 @@ function collectTokenMetricRecord(state: TokenMetricState, data: TranscriptLine 
         if (hasStopReason && !state.hasStopReasonField) {
             state.hasStopReasonField = true;
             state.metrics = createTokenMetricAccumulator();
-            state.countedMessageId = null;
-            state.countedOutputTokens = 0;
+            state.countedOutputByMessageId.clear();
         }
         if (!state.hasStopReasonField || entry.stopReason) {
             accumulateCumulativeTokenEntry(state, entry, !compactBoundary);
@@ -389,6 +381,42 @@ function getIntervalsDurationMs(intervals: SpeedInterval[]): number {
     return intervals.reduce((total, interval) => total + (interval.endMs - interval.startMs), 0);
 }
 
+/**
+ * Cuts a request down to the part of its time inside the window.
+ *
+ * A request's tokens are produced across the time its response ran, so one that
+ * started before the window produced only some of them inside it. It keeps the
+ * share of its tokens that matches the share of that time inside the window: all
+ * of its tokens over only the clipped time would overstate the speed. That time
+ * is the union of the intervals of the response's records, including those
+ * logged before the window; a request without any interval keeps all of its
+ * tokens.
+ */
+function clipRequestToWindow(request: SpeedRequest, window: SpeedInterval): SpeedRequest {
+    const responseTime = mergeIntervals(request.intervals);
+    const intervals: SpeedInterval[] = [];
+    for (const interval of responseTime) {
+        const startMs = Math.max(interval.startMs, window.startMs);
+        const endMs = Math.min(interval.endMs, window.endMs);
+        if (endMs > startMs) {
+            intervals.push({ startMs, endMs });
+        }
+    }
+
+    const fullMs = getIntervalsDurationMs(responseTime);
+    if (fullMs === 0) {
+        return { ...request, intervals };
+    }
+
+    const insideMs = getIntervalsDurationMs(intervals);
+    return {
+        ...request,
+        inputTokens: request.inputTokens * insideMs / fullMs,
+        outputTokens: request.outputTokens * insideMs / fullMs,
+        intervals
+    };
+}
+
 function createEmptySpeedMetrics(): SpeedMetrics {
     return {
         totalDurationMs: 0,
@@ -408,13 +436,22 @@ function normalizeWindowSeconds(value: number | undefined): number | null {
     return normalized > 0 ? normalized : null;
 }
 
-interface SpeedMetricCollectorState extends CollectedSpeedMetrics { lastUserTimestampMs: number | null }
+interface SpeedMetricCollectorState extends CollectedSpeedMetrics {
+    lastUserTimestampMs: number | null;
+    lastRequest: SpeedRequest | null;
+    lastRequestInterval: SpeedInterval | null;
+    // Scoped to this transcript so subagent collectors keep independent requests.
+    requestsByMessageId: Map<string, SpeedRequest>;
+}
 
 function createSpeedMetricCollector(): SpeedMetricCollectorState {
     return {
         requests: [],
         latestTimestampMs: null,
-        lastUserTimestampMs: null
+        lastUserTimestampMs: null,
+        lastRequest: null,
+        lastRequestInterval: null,
+        requestsByMessageId: new Map()
     };
 }
 
@@ -447,12 +484,50 @@ function collectSpeedMetricRecord(
     }
 
     const usage = parseUsageTokens(data.message.usage);
-    state.requests.push({
+    const rawMessageId = data.message.id;
+    const messageId = typeof rawMessageId === 'string' && rawMessageId.length > 0 ? rawMessageId : null;
+
+    // One API call can be written as several entries sharing a message.id,
+    // each repeating the call's input tokens. Count the call once, keeping
+    // its largest output count and its latest end time.
+    const previous = messageId === null ? undefined : state.requestsByMessageId.get(messageId);
+    if (previous) {
+        if (state.lastRequest !== previous) {
+            state.lastRequestInterval = null;
+        }
+        previous.inputTokens = usage.input;
+        previous.outputTokens = Math.max(previous.outputTokens, usage.output);
+        if (timestampMs !== null) {
+            previous.assistantTimestampMs = timestampMs;
+        }
+        if (interval) {
+            const lastInterval = state.lastRequestInterval;
+            if (lastInterval) {
+                lastInterval.startMs = Math.min(lastInterval.startMs, interval.startMs);
+                lastInterval.endMs = Math.max(lastInterval.endMs, interval.endMs);
+            } else {
+                // A nonconsecutive repeat must not turn the intervening idle
+                // time into active processing time.
+                previous.intervals.push(interval);
+                state.lastRequestInterval = interval;
+            }
+        }
+        state.lastRequest = previous;
+        return;
+    }
+
+    const request: SpeedRequest = {
         inputTokens: usage.input,
         outputTokens: usage.output,
         assistantTimestampMs: timestampMs,
-        interval
-    });
+        intervals: interval ? [interval] : []
+    };
+    state.requests.push(request);
+    state.lastRequest = request;
+    state.lastRequestInterval = interval;
+    if (messageId !== null) {
+        state.requestsByMessageId.set(messageId, request);
+    }
 }
 
 async function collectSpeedMetricsFromFile(filePath: string, ignoreSidechain: boolean): Promise<CollectedSpeedMetrics> {
@@ -470,7 +545,11 @@ function mergeCollectedSpeedMetrics(parts: CollectedSpeedMetrics[]): CollectedSp
     let latestTimestampMs: number | null = null;
 
     for (const part of parts) {
-        requests.push(...part.requests);
+        // One push per request: spreading a long transcript's requests into a
+        // single call exceeds the engine's argument limit and throws
+        for (const request of part.requests) {
+            requests.push(request);
+        }
 
         if (part.latestTimestampMs !== null && (latestTimestampMs === null || part.latestTimestampMs > latestTimestampMs)) {
             latestTimestampMs = part.latestTimestampMs;
@@ -488,22 +567,21 @@ function buildSpeedMetrics(
     windowSeconds?: number
 ): SpeedMetrics {
     const normalizedWindowSeconds = normalizeWindowSeconds(windowSeconds);
-    if (normalizedWindowSeconds !== null && collected.latestTimestampMs === null) {
+    const windowBounds = normalizedWindowSeconds !== null && collected.latestTimestampMs !== null
+        ? {
+            startMs: collected.latestTimestampMs - (normalizedWindowSeconds * 1000),
+            endMs: collected.latestTimestampMs
+        }
+        : null;
+    if (normalizedWindowSeconds !== null && windowBounds === null) {
         return createEmptySpeedMetrics();
     }
 
-    const windowEndMs = normalizedWindowSeconds !== null && collected.latestTimestampMs !== null
-        ? collected.latestTimestampMs
-        : null;
-    const windowStartMs = normalizedWindowSeconds !== null && windowEndMs !== null
-        ? windowEndMs - (normalizedWindowSeconds * 1000)
-        : null;
-
-    const selectedRequests = normalizedWindowSeconds !== null && windowStartMs !== null && windowEndMs !== null
+    const selectedRequests = windowBounds
         ? collected.requests.filter(request => request.assistantTimestampMs !== null
-            && request.assistantTimestampMs >= windowStartMs
-            && request.assistantTimestampMs <= windowEndMs
-        )
+            && request.assistantTimestampMs >= windowBounds.startMs
+            && request.assistantTimestampMs <= windowBounds.endMs
+        ).map(request => clipRequestToWindow(request, windowBounds))
         : collected.requests;
 
     let inputTokens = 0;
@@ -514,22 +592,8 @@ function buildSpeedMetrics(
         inputTokens += request.inputTokens;
         outputTokens += request.outputTokens;
 
-        if (!request.interval) {
-            continue;
-        }
-
-        if (windowStartMs === null || windowEndMs === null) {
-            intervals.push(request.interval);
-            continue;
-        }
-
-        const clippedStartMs = Math.max(request.interval.startMs, windowStartMs);
-        const clippedEndMs = Math.min(request.interval.endMs, windowEndMs);
-        if (clippedEndMs > clippedStartMs) {
-            intervals.push({
-                startMs: clippedStartMs,
-                endMs: clippedEndMs
-            });
+        for (const interval of request.intervals) {
+            intervals.push(interval);
         }
     }
 
@@ -630,6 +694,7 @@ async function scanTranscript(transcriptPath: string, options: TranscriptScanOpt
     let lastTimestampMs: number | null = null;
     let thinkingEffort: ResolvedThinkingEffort | undefined;
     let sessionName: string | null = null;
+    let automaticTitle: string | null = null;
 
     try {
         for await (const line of iterateJsonlLines(transcriptPath)) {
@@ -663,6 +728,7 @@ async function scanTranscript(transcriptPath: string, options: TranscriptScanOpt
             }
             if (options.includeSessionName) {
                 sessionName = getSessionNameFromRecord(data) ?? sessionName;
+                automaticTitle = getSessionNameFromRecord(data, 'ai-title') ?? automaticTitle;
             }
         }
 
@@ -695,7 +761,7 @@ async function scanTranscript(transcriptPath: string, options: TranscriptScanOpt
             speedMetricsCollection,
             compactionData,
             thinkingEffort,
-            sessionName
+            sessionName: sessionName ?? automaticTitle
         };
     } catch {
         return emptyResult;

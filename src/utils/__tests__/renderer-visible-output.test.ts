@@ -80,13 +80,15 @@ describe('regular-mode widgets that preserve their own colors', () => {
         expect(line).toContain(`\x1b[0m${getColorAnsiCode('bgBlue', 'ansi256', true)} tail`);
     });
 
-    it('closes styles the content leaves open before the next widget', () => {
+    it('re-asserts the next element\'s own styling after a preserve-colors widget leaves styles open', () => {
+        // Upstream's rework no longer force-closes styles a command leaves
+        // open; instead the next element re-asserts its own SGR codes, so
+        // the leak cannot survive past the separator.
         const widgets = [command('cmd'), SEP, text('next')];
         const line = renderStatusLine(widgets, createSettings(), context, preRendered(widgets, { 0: '\x1b[1;4mX', 2: 'next' }), []);
 
-        const closeIndex = line.indexOf('\x1b[0m', line.indexOf('X'));
-        expect(closeIndex).toBeGreaterThan(-1);
-        expect(closeIndex).toBeLessThan(line.indexOf(' | '));
+        const afterX = line.slice(line.indexOf('X') + 1, line.indexOf(' | '));
+        expect(afterX).toMatch(/^\x1b\[/);
     });
 });
 
@@ -126,16 +128,18 @@ describe('truncation reporting', () => {
     it('reports a line cut to fit the width', () => {
         const widgets = [text('a')];
         const narrow: RenderContext = { isPreview: false, terminalWidth: 16 };
-        const result = renderStatusLineWithInfo(widgets, createSettings({ colorLevel: 0, flexMode: 'full' }), narrow, preRendered(widgets, { 0: 'a long widget text' }), []);
+        const result = renderStatusLineWithInfo(widgets, createSettings({ colorLevel: 0 }), narrow, preRendered(widgets, { 0: 'a long widget text' }), []);
 
         expect(result.wasTruncated).toBe(true);
-        expect(stripSgrCodes(result.line)).toBe('a long ...');
+        // Upstream trims the right-edge reserve from 6 columns to 5
+        // (RESERVED_COLUMNS), so the cut now keeps one more character.
+        expect(stripSgrCodes(result.line)).toBe('a long w...');
     });
 
     it('reports a Powerline line cut to fit the width', () => {
         const widgets = [text('a')];
         const narrow: RenderContext = { isPreview: false, terminalWidth: 16 };
-        const settings = createSettings({ colorLevel: 0, flexMode: 'full', powerline: { ...DEFAULT_SETTINGS.powerline, enabled: true } });
+        const settings = createSettings({ colorLevel: 0, powerline: { ...DEFAULT_SETTINGS.powerline, enabled: true } });
 
         expect(renderStatusLineWithInfo(widgets, settings, narrow, preRendered(widgets, { 0: 'a long widget text' }), []).wasTruncated).toBe(true);
         expect(renderStatusLineWithInfo(widgets, settings, context, preRendered(widgets, { 0: 'fits...' }), []).wasTruncated).toBe(false);

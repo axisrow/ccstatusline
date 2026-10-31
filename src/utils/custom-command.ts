@@ -59,8 +59,8 @@ export function buildCustomCommandRequest(item: WidgetItem, context: RenderConte
     }
     const jsonInput = JSON.stringify(
         typeof context.terminalWidth === 'number'
-            ? { ...context.data, terminal_width: context.terminalWidth }
-            : context.data
+            ? { ...(context.rawData ?? context.data), terminal_width: context.terminalWidth }
+            : (context.rawData ?? context.data)
     );
     return {
         command: item.commandPath,
