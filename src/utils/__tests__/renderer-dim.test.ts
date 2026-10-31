@@ -49,7 +49,6 @@ const TRUECOLOR_CODE = /\x1b\[38;2;\d+;\d+;\d+m/g;
 function createSettings(overrides: Partial<Settings> = {}): Settings {
     return {
         ...DEFAULT_SETTINGS,
-        flexMode: 'full',
         ...overrides,
         powerline: {
             ...DEFAULT_SETTINGS.powerline,
