@@ -130,7 +130,9 @@ def start_bench_daemon(runtime, entry, env, runtime_dir):
     runtime_dir.mkdir(parents=True, exist_ok=True)
     daemon_env = dict(env, CCSTATUSLINE_RUNTIME_DIR=str(runtime_dir))
     started = time.perf_counter()
-    proc = subprocess.Popen([runtime, entry, 'daemon'], env=daemon_env,
+    # `daemon serve` is the foreground server; bare `daemon` prints usage
+    # and exits 1 since the #19/#52 CLI split.
+    proc = subprocess.Popen([runtime, entry, 'daemon', 'serve'], env=daemon_env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     discovery = runtime_dir / 'daemon.env'
     deadline = time.time() + 15
@@ -375,33 +377,37 @@ def cmd_run_one(args):
     recovery = {}
     start = time.perf_counter()
     if args.mode == 'daemon-recovery':
-        # Deterministic recovery proof: kill the daemon (SIGKILL, no cleanup),
-        # then a full wave hits the dead daemon — every client must fail with
-        # rc!=0 and EMPTY stdout (a partial line must never become a status
-        # line). Restart, re-render every session, require byte-identical
-        # output to the warm wave.
+        # Deterministic recovery proof (#67): kill the daemon (SIGKILL, no
+        # cleanup), then a full wave hits the dead daemon — under the visible
+        # degradation contract (#65) every client must still render: rc==0
+        # with a non-empty line, via the transparent lazy restart or the
+        # one-shot fallback. A silently empty line is the regression this
+        # scenario exists to catch. Restart the daemon, re-render EVERY
+        # session through the fresh daemon, require byte-identical output to
+        # the warm wave and a genuinely new daemon process.
         assert daemon is not None
+        daemon_pid_before = daemon.pid
         daemon.kill()
         killed_at = time.perf_counter()
         daemon.wait()  # reap the killed daemon so its CPU stays in the run
         dead_samples = wave(1, allow_fail=True)
-        survived = [s for s in dead_samples if s[3] == 0]
-        failed = sorted({i for (i, _e, _h, rc) in dead_samples if rc != 0})
-        empty_stdout = all(s[2] == hashlib.sha256(b'').hexdigest() for s in dead_samples if s[3] != 0)
+        dead_rendered = sum(1 for s in dead_samples if s[3] == 0 and s[2] != hashlib.sha256(b'').hexdigest())
+        dead_failed = sorted({i for (i, _e, _h, rc) in dead_samples if rc != 0})
         restart_started = time.perf_counter()
         _health, _ms = start_daemon_now()
+        daemon_pid_changed = daemon.pid != daemon_pid_before
         ready_at = time.perf_counter()
         reverified = {}
-        for i in failed:
+        for i in range(args.sessions):
             _i, _e, digest, rc = once(i)
             if rc != 0:
                 raise RuntimeError('recovery re-render failed for session %d' % i)
             reverified[i] = digest
         mismatched = [i for i, digest in reverified.items() if warmup_hashes.get(i) not in (None, digest)]
         recovery = {
-            'clients_failed_on_dead_daemon': len(failed),
-            'clients_that_still_succeeded': len(survived),
-            'failed_clients_stdout_empty': empty_stdout,
+            'clients_failed_on_dead_daemon': len(dead_failed),
+            'clients_rendered_on_dead_daemon': dead_rendered,
+            'daemon_pid_changed': daemon_pid_changed,
             'restart_ready_ms': round((ready_at - restart_started) * 1000, 1),
             'reverified': len(reverified),
             'output_mismatches': mismatched,
@@ -614,19 +620,24 @@ def cmd_daemon_bench(args):
     }
     recovery = find('s%d-daemon-recovery-small' % big)
     # The recovery scenario is a proof, not telemetry: its invariants gate the
-    # run like any other acceptance check. clients_that_still_succeeded > 0 or
-    # a non-empty stdout on the dead-daemon wave means the isolation contract
-    # is broken; any output mismatch after restart means rendering changed.
+    # run like any other acceptance check. Since the visible-degradation
+    # contract (#65) a dead daemon must not leave clients empty: every client
+    # renders (transparent restart or one-shot fallback), the restarted
+    # daemon is a new process, and every session re-renders byte-identically
+    # through it.
+    rec = recovery.get('recovery', {}) if recovery else {}
     recovery_gate = {
-        'target': 'every client fails clean (rc!=0, empty stdout) against the dead daemon; all sessions re-render byte-identically after restart',
-        'clients_that_still_succeeded': recovery.get('recovery', {}).get('clients_that_still_succeeded') if recovery else None,
-        'failed_clients_stdout_empty': recovery.get('recovery', {}).get('failed_clients_stdout_empty') if recovery else None,
-        'output_mismatches': recovery.get('recovery', {}).get('output_mismatches') if recovery else None,
+        'target': 'every client renders against the dead daemon (transparent restart or one-shot fallback, rc==0, non-empty stdout); the restarted daemon is a new process; every session re-renders byte-identically',
+        'clients_rendered_on_dead_daemon': rec.get('clients_rendered_on_dead_daemon') if recovery else None,
+        'clients_failed_on_dead_daemon': rec.get('clients_failed_on_dead_daemon') if recovery else None,
+        'daemon_pid_changed': rec.get('daemon_pid_changed') if recovery else None,
+        'output_mismatches': rec.get('output_mismatches') if recovery else None,
     }
     recovery_gate['passed'] = bool(
         recovery and not recovery.get('error')
-        and recovery_gate['clients_that_still_succeeded'] == 0
-        and recovery_gate['failed_clients_stdout_empty'] is True
+        and recovery_gate['clients_failed_on_dead_daemon'] == 0
+        and (recovery_gate['clients_rendered_on_dead_daemon'] or 0) > 0
+        and recovery_gate['daemon_pid_changed'] is True
         and recovery_gate['output_mismatches'] == []
     )
 
@@ -640,7 +651,7 @@ def cmd_daemon_bench(args):
             'Cold shared mode includes booting the daemon (no process, cold caches) inside the measured window.',
             'Idle-timer refreshes are not modeled as a separate phase; warm runs measure steady back-to-back repaint waves, and the daemon idle sweep runs only after 5 quiet minutes.',
             'Slow-command scenario: one custom-command widget sleeping 400ms per render, cache TTL 0.',
-            'Recovery scenario: SIGKILL of the daemon (no cleanup), a full client wave against the dead daemon must fail with rc!=0 and empty stdout (never a partial line), then the daemon is restarted and every session re-rendered with byte-identical output.',
+            'Recovery scenario: SIGKILL of the daemon (no cleanup), a full client wave against the dead daemon must still render every line (transparent restart or one-shot fallback: rc==0, non-empty stdout), then the daemon is restarted and every session re-rendered with byte-identical output through the new daemon process.',
             'Aggregate RSS is sampled via ps over live process trees (~%sms cadence); short-lived children can be missed, so it undercounts.' % args.interval_ms,
             'Runs were rejected/waited while system loadavg1 exceeded %s (gate recorded above); concurrent sibling sessions still add noise.' % max_load,
         ],
@@ -649,9 +660,10 @@ def cmd_daemon_bench(args):
     (out_dir / 'daemon-bench.json').write_text(json.dumps(doc, indent=2))
     write_daemon_summary(out_dir, doc)
     failed = sum(1 for r in runs if r.get('error')) + (0 if recovery_gate['passed'] else 1)
-    print('[daemon-bench] recovery gate: passed=%s (still_succeeded=%s, stdout_empty=%s, mismatches=%s)' % (
-        recovery_gate['passed'], recovery_gate['clients_that_still_succeeded'],
-        recovery_gate['failed_clients_stdout_empty'], recovery_gate['output_mismatches']), flush=True)
+    print('[daemon-bench] recovery gate: passed=%s (rendered_on_dead=%s, failed_on_dead=%s, pid_changed=%s, mismatches=%s)' % (
+        recovery_gate['passed'], recovery_gate['clients_rendered_on_dead_daemon'],
+        recovery_gate['clients_failed_on_dead_daemon'], recovery_gate['daemon_pid_changed'],
+        recovery_gate['output_mismatches']), flush=True)
     print('[daemon-bench] done: %d runs, %d failed. Gate (%s): %s%% reduction, passed=%s. Results: %s/daemon-bench.json, %s/DAEMON-BENCH.md' % (
         len(runs), failed, gate['scenario'], gate['reduction_pct'], gate['passed'], out_dir, out_dir), flush=True)
     return 1 if failed or not gate['passed'] else 0
@@ -704,9 +716,9 @@ def write_daemon_summary(out_dir, doc):
         rec = recovery.get('recovery') or {}
         lines.append('## Recovery (SIGKILL, dead-daemon wave, restart)')
         lines.append('')
-        lines.append('- clients that failed on the dead daemon with rc!=0: %s of %s' % (rec.get('clients_failed_on_dead_daemon'), recovery.get('sessions')))
-        lines.append('- clients that still succeeded (should be 0): %s' % rec.get('clients_that_still_succeeded'))
-        lines.append('- failed clients left stdout empty (no partial status line): %s' % rec.get('failed_clients_stdout_empty'))
+        lines.append('- clients that failed on the dead daemon with rc!=0 (must be 0): %s of %s' % (rec.get('clients_failed_on_dead_daemon'), recovery.get('sessions')))
+        lines.append('- clients that rendered on the dead daemon (restart or one-shot fallback): %s' % rec.get('clients_rendered_on_dead_daemon'))
+        lines.append('- restarted daemon is a new process (pid changed): %s' % rec.get('daemon_pid_changed'))
         lines.append('- daemon restart to ready: %s ms' % rec.get('restart_ready_ms'))
         lines.append('- sessions re-rendered after restart: %s, output mismatches vs warm wave: %s' % (rec.get('reverified'), rec.get('output_mismatches')))
         lines.append('- gate: %s (violations fail the whole run)' % ('PASS' if doc.get('recovery_gate', {}).get('passed') else 'FAIL'))

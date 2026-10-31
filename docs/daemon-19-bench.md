@@ -72,6 +72,6 @@ render and its children (git etc.).
 - Cold shared mode includes booting the daemon (no process, cold caches) inside the measured window.
 - Idle-timer refreshes are not modeled as a separate phase; warm runs measure steady back-to-back repaint waves, and the daemon idle sweep runs only after 5 quiet minutes.
 - Slow-command scenario: one custom-command widget sleeping 400ms per render, cache TTL 0.
-- Recovery scenario: SIGKILL of the daemon (no cleanup), a full client wave against the dead daemon must fail with rc!=0 and empty stdout (never a partial line), then the daemon is restarted and every session re-rendered with byte-identical output.
+- Recovery scenario: SIGKILL of the daemon (no cleanup), a full client wave against the dead daemon must still render every line (transparent restart or one-shot fallback: rc==0, non-empty stdout), then the daemon is restarted and every session re-rendered with byte-identical output through the new daemon process.
 - Aggregate RSS is sampled via ps over live process trees (~25ms cadence); short-lived children can be missed, so it undercounts.
 - Runs were rejected/waited while system loadavg1 exceeded 14.0 (gate recorded above); concurrent sibling sessions still add noise.
