@@ -361,7 +361,32 @@ def main():
             c['cpu_reduction_pct'], c['oneshot_p95_ms'], c['shared_p95_ms'],
             c['shared_failures'], c['output_hashes_equal']), flush=True)
     failures = sum(r[phase]['failures'] for r in runs.values() if isinstance(r, dict) and 'cold' in r for phase in ('cold', 'warm'))
-    ok = failures == 0 and runs['idle-stop'].get('exited_by_itself') and runs['idle-stop'].get('lazy_restart_render_rc') == 0
+
+    # Client rc==0 no longer proves the daemon path works: the visible
+    # degradation contract (#65) renders one-shot on any transport failure.
+    # Gate the daemon-side truth the lazy scenario already records: a single
+    # daemon across both waves, its health counters showing served renders
+    # (warm wave: at least one per session), and the idle-stop lazy restart
+    # producing a genuinely new daemon process.
+    def daemon_served(summary, min_ok):
+        counters = summary.get('daemon_counters') or {}
+        served = counters.get('ok')
+        return isinstance(served, int) and served >= min_ok and summary.get('single_daemon_across_waves') is True
+
+    sessions_list = [int(s) for s in args.sessions.split(',')]
+    daemon_path_ok = all(
+        daemon_served(runs['lazy-%d' % n]['warm'], n)
+        and (runs['lazy-%d' % n]['cold'].get('daemon_counters') or {}).get('ok', 0) >= 1
+        for n in sessions_list
+    )
+    idle = runs['idle-stop']
+    restart_ok = (idle.get('lazy_restart_render_rc') == 0
+                  and idle.get('lazy_restart_new_pid') is not None
+                  and idle.get('lazy_restart_new_pid') != idle.get('pid'))
+    ok = failures == 0 and daemon_path_ok and idle.get('exited_by_itself') and restart_ok
+    if not daemon_path_ok:
+        print('[53-bench] daemon-path gate FAILED: renders did not go through a single live daemon (counters=%s)' % {
+            n: (runs['lazy-%d' % n]['warm'].get('daemon_counters'), runs['lazy-%d' % n]['warm'].get('single_daemon_across_waves')) for n in sessions_list}, flush=True)
     print('[53-bench] %s' % ('PASS' if ok else 'FAIL'), flush=True)
     return 0 if ok else 1
 
