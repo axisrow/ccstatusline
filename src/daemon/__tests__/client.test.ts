@@ -300,6 +300,112 @@ describe('shell client end to end', () => {
             fs.rmSync(runtimeDir, { recursive: true, force: true });
         }
     });
+
+    // v2 hardening: hermetic stub renderers instead of the real one. Each
+    // test copies the client into a fake install root whose dist/ renderer
+    // is a few lines of JS, so the fallback's branching (echo, crash,
+    // hang, missing node) is exercised in milliseconds.
+    function makeStubInstallRoot(dir: string, rendererSource: string): string {
+        const binDir = path.join(dir, 'bin');
+        const distDir = path.join(dir, 'dist');
+        fs.mkdirSync(binDir);
+        fs.mkdirSync(distDir);
+        fs.copyFileSync(clientPath, path.join(binDir, 'ccstatusline-ipc'));
+        fs.writeFileSync(path.join(distDir, 'ccstatusline.js'), rendererSource);
+        return path.join(binDir, 'ccstatusline-ipc');
+    }
+
+    it('renders through an echo stub dist renderer', async () => {
+        const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-stub-echo-'));
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-client-home-'));
+        try {
+            const result = await runClient(
+                runtimeDir,
+                JSON.stringify({ model: { id: 'claude-stub-echo-model' }, cwd: '/tmp' }),
+                { CCSTATUSLINE_NO_AUTOSTART: '1', ...isolatedHomeEnv(home) },
+                makeStubInstallRoot(runtimeDir, 'process.stdin.pipe(process.stdout);\n')
+            );
+
+            expect(result.status).toBe(0);
+            expect(result.stdout).toContain('claude-stub-echo-model');
+            expect(result.stdout).not.toContain('⚠');
+        } finally {
+            fs.rmSync(runtimeDir, { recursive: true, force: true });
+            fs.rmSync(home, { recursive: true, force: true });
+        }
+    });
+
+    it('prints the diagnostic alone when the renderer is found but fails', async () => {
+        const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-stub-fail-'));
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-client-home-'));
+        try {
+            const result = await runClient(
+                runtimeDir,
+                JSON.stringify({ model: { id: 'claude-stub-fail-model' }, cwd: '/tmp' }),
+                { CCSTATUSLINE_NO_AUTOSTART: '1', ...isolatedHomeEnv(home) },
+                makeStubInstallRoot(runtimeDir, 'process.exit(3);\n')
+            );
+
+            // A renderer that produces output and then dies must not leak a
+            // partial line: stdout carries the diagnostic and nothing else.
+            expect(result.status).toBe(1);
+            expect(result.stdout).toContain('⚠ ccstatusline');
+            expect(result.stdout).not.toContain('claude-stub-fail-model');
+        } finally {
+            fs.rmSync(runtimeDir, { recursive: true, force: true });
+            fs.rmSync(home, { recursive: true, force: true });
+        }
+    });
+
+    it('bounds a hung renderer with the total-deadline watchdog', async () => {
+        const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-stub-hang-'));
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-client-home-'));
+        try {
+            const result = await runClient(
+                runtimeDir,
+                JSON.stringify({ model: { id: 'claude-stub-hang-model' }, cwd: '/tmp' }),
+                { CCSTATUSLINE_NO_AUTOSTART: '1', CCSTATUSLINE_IPC_TIMEOUT: '1', ...isolatedHomeEnv(home) },
+                makeStubInstallRoot(runtimeDir, 'setTimeout(function () {}, 600000);\n')
+            );
+
+            // The run itself completes: the watchdog killed the renderer at
+            // the 1s deadline instead of blocking on it forever.
+            expect(result.status).toBe(1);
+            expect(result.stdout).toContain('⚠ ccstatusline');
+        } finally {
+            fs.rmSync(runtimeDir, { recursive: true, force: true });
+            fs.rmSync(home, { recursive: true, force: true });
+        }
+    });
+
+    it('runs the dist bundle under bun when node is not on PATH', async () => {
+        const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-stub-bunly-'));
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-client-home-'));
+        // A PATH whose only runtime is `bun`: bun-only installs (bunx,
+        // bun add -g) ship dist/ without node. process.execPath under the
+        // bun test runner is the bun binary itself.
+        const fakeBin = path.join(runtimeDir, 'fakebin');
+        fs.mkdirSync(fakeBin);
+        fs.symlinkSync(process.execPath, path.join(fakeBin, 'bun'));
+        try {
+            const result = await runClient(
+                runtimeDir,
+                JSON.stringify({ model: { id: 'claude-bunly-model' }, cwd: '/tmp' }),
+                {
+                    CCSTATUSLINE_NO_AUTOSTART: '1',
+                    PATH: `${fakeBin}:/bin:/usr/bin`,
+                    ...isolatedHomeEnv(home)
+                },
+                makeStubInstallRoot(runtimeDir, 'process.stdin.pipe(process.stdout);\n')
+            );
+
+            expect(result.status).toBe(0);
+            expect(result.stdout).toContain('claude-bunly-model');
+        } finally {
+            fs.rmSync(runtimeDir, { recursive: true, force: true });
+            fs.rmSync(home, { recursive: true, force: true });
+        }
+    });
 });
 
 // On-demand lifecycle (#53): the shared-mode client lazily starts a daemon

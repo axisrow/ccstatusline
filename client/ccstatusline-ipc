@@ -3,13 +3,15 @@
 #
 # Reads the Claude Code status JSON from stdin, forwards it to the local
 # ccstatusline daemon over its private Unix socket, and prints the rendered
-# status line on stdout. All diagnostics go to stderr. On any transport
-# failure the client degrades visibly (#65): it first retries the render as
-# a one-shot directly from the install root — a dead or busy daemon must not
-# leave the status line silently empty while the renderer on disk works —
-# and only when even that fails prints a short diagnostic line to stdout.
-# A partial daemon response can still never reach stdout: the body is
-# buffered whole and printed only after a successful request.
+# status line on stdout. Transport diagnostics go to stderr. On any
+# transport failure the client degrades visibly (#65): it first retries the
+# render as a one-shot directly from the install root — a dead or busy
+# daemon must not leave the status line silently empty while the renderer
+# on disk works — and only when even that fails prints a short visible
+# diagnostic line to stdout. The fallback is bounded by the same total
+# deadline as the daemon request, and its output is buffered whole, so a
+# partial daemon response or a renderer dying mid-line can never reach
+# stdout.
 #
 # Shell + curl only on the daemon path; the one-shot fallback may exec the
 # install root's own node/bun renderer. The auth token reaches curl through
@@ -43,25 +45,66 @@ max_context_bytes=16384
 # one-shot straight from the install root — the same layouts start_daemon
 # knows (dist for npm installs, src for dev checkouts). The buffered payload
 # is fed back once it exists; on failures before buffering, stdin has not
-# been consumed yet and the renderer reads it live. Each exec is spelled
-# out (no word-splitting on the path).
+# been consumed yet and the renderer reads it live — never a live TTY,
+# though: that is a human debugging invocation, and the piped entry would
+# launch the interactive TUI on it. On bun-only machines (bunx, bun add -g)
+# dist/ ships without node, so the bundle is tried under bun too. The
+# renderer runs under the same total deadline as the daemon request — a
+# hung widget command must not wedge the status line forever — and its
+# stdout is buffered whole, so a renderer dying mid-line leaves no partial
+# line behind.
 render_one_shot() {
     install_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd) || return 1
+    if [ ! -f "${payload_tmp:-}" ] && [ -t 0 ]; then
+        return 1
+    fi
     if [ -f "$install_root/dist/ccstatusline.js" ]; then
-        if [ -n "${payload_tmp:-}" ] && [ -f "$payload_tmp" ]; then
-            node "$install_root/dist/ccstatusline.js" < "$payload_tmp"
+        if command -v node >/dev/null 2>&1; then
+            renderer_bin=node
+        elif command -v bun >/dev/null 2>&1; then
+            renderer_bin=bun
         else
-            node "$install_root/dist/ccstatusline.js"
+            return 1
         fi
+        renderer_script=$install_root/dist/ccstatusline.js
     elif [ -f "$install_root/src/ccstatusline.ts" ]; then
-        if [ -n "${payload_tmp:-}" ] && [ -f "$payload_tmp" ]; then
-            bun "$install_root/src/ccstatusline.ts" < "$payload_tmp"
-        else
-            bun "$install_root/src/ccstatusline.ts"
-        fi
+        command -v bun >/dev/null 2>&1 || return 1
+        renderer_bin=bun
+        renderer_script=$install_root/src/ccstatusline.ts
     else
         return 1
     fi
+    out_tmp=$(mktemp "${TMPDIR:-/tmp}/ccstatusline-ipc-render.XXXXXX") || return 1
+    if [ -f "${payload_tmp:-}" ]; then
+        "$renderer_bin" "$renderer_script" < "$payload_tmp" > "$out_tmp" &
+    else
+        # POSIX gives an asynchronous list a /dev/null stdin unless an
+        # explicit redirection overrides it: without <&0 the renderer would
+        # read an empty payload on every pre-buffer failure.
+        "$renderer_bin" "$renderer_script" <&0 > "$out_tmp" &
+    fi
+    render_pid=$!
+    # The watchdog's stdio must not touch this script's stdout/stderr: when
+    # the render finishes early, killing the watchdog subshell orphans its
+    # `sleep` child, and a sleep holding the caller's pipes keeps a piped
+    # consumer (Claude Code, tests) waiting for EOF until it expires.
+    {
+        sleep "$total_timeout"
+        kill "$render_pid" 2>/dev/null
+    } >/dev/null 2>&1 &
+    watchdog_pid=$!
+    wait "$render_pid"
+    render_rc=$?
+    kill "$watchdog_pid" 2>/dev/null
+    wait "$watchdog_pid" 2>/dev/null
+    if [ "$render_rc" -ne 0 ]; then
+        rm -f "$out_tmp"
+        out_tmp=''
+        return "$render_rc"
+    fi
+    cat "$out_tmp"
+    rm -f "$out_tmp"
+    out_tmp=''
 }
 
 fail() {
@@ -69,7 +112,7 @@ fail() {
     if render_one_shot; then
         exit 0
     fi
-    printf '⚠ ccstatusline: daemon unreachable (%s) and the one-shot render failed\n' "$1"
+    printf '⚠ ccstatusline: status line unavailable (%s) and the one-shot render failed\n' "$1"
     exit 1
 }
 
@@ -165,7 +208,7 @@ context=$(
 # token still travels only through the curl config on stdin.
 payload_tmp=$(mktemp "${TMPDIR:-/tmp}/ccstatusline-ipc-payload.XXXXXX") || fail "cannot buffer stdin"
 body_tmp=$(mktemp "${TMPDIR:-/tmp}/ccstatusline-ipc-body.XXXXXX") || { rm -f "$payload_tmp"; fail "cannot create temp file"; }
-cleanup() { rm -f "$payload_tmp" "$body_tmp"; }
+cleanup() { rm -f "$payload_tmp" "$body_tmp" "${out_tmp:-}"; }
 trap cleanup EXIT
 # Signal exits must not resume the retry loop (a handler without exit would
 # return into the backoff sleep); the EXIT trap still removes the temp files.
