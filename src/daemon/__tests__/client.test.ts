@@ -42,7 +42,12 @@ afterEach(async () => {
     }
 });
 
-async function runClient(runtimeDir: string, payload: string, extraEnv: Record<string, string> = {}): Promise<{
+async function runClient(
+    runtimeDir: string,
+    payload: string,
+    extraEnv: Record<string, string> = {},
+    clientFile: string = clientPath
+): Promise<{
     status: number;
     stdout: string;
     stderr: string;
@@ -60,7 +65,7 @@ async function runClient(runtimeDir: string, payload: string, extraEnv: Record<s
     return new Promise((resolve, reject) => {
         const child = spawn('/bin/sh', [
             '-c',
-            `"${clientPath}" < "${payloadPath}"`,
+            `"${clientFile}" < "${payloadPath}"`,
             'ccstatusline-ipc-test'
         ], {
             cwd: runtimeDir,
@@ -91,6 +96,21 @@ async function runClient(runtimeDir: string, payload: string, extraEnv: Record<s
 }
 
 describe('shell client end to end', () => {
+    // Fallback tests (#65) spawn the real one-shot renderer (node dist, or
+    // bun src when dist is not built). Without isolation that render loads —
+    // and hook sync can write — the developer's real Claude settings: the
+    // exact leak class upstream fixed in #716. Point every HOME-family
+    // variable into a throwaway directory.
+    function isolatedHomeEnv(home: string): Record<string, string> {
+        return {
+            HOME: home,
+            USERPROFILE: home,
+            CLAUDE_CONFIG_DIR: path.join(home, 'claude'),
+            XDG_CONFIG_HOME: path.join(home, 'config'),
+            XDG_CACHE_HOME: path.join(home, 'cache')
+        };
+    }
+
     it('forwards the payload and prints exactly the rendered line', async () => {
         const { daemon } = await start();
         const payload = JSON.stringify({ model: { id: 'claude-client-model' }, cwd: '/tmp' });
@@ -145,48 +165,73 @@ describe('shell client end to end', () => {
         expect(result.stderr).toBe('');
     });
 
-    it('fails with empty stdout when the daemon is not running and autostart is disabled', async () => {
+    it('falls back to a one-shot render when no daemon is running and autostart is disabled (#65)', async () => {
         const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-client-none-'));
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-client-home-'));
         try {
-            const result = await runClient(runtimeDir, '{}', { CCSTATUSLINE_NO_AUTOSTART: '1' });
+            const result = await runClient(
+                runtimeDir,
+                JSON.stringify({ model: { id: 'claude-fallback-model' }, cwd: '/tmp' }),
+                { CCSTATUSLINE_NO_AUTOSTART: '1', ...isolatedHomeEnv(home) }
+            );
 
-            expect(result.status).not.toBe(0);
-            expect(result.stdout).toBe('');
+            // The daemon path failed, but the line must not go silently
+            // empty: the one-shot fallback renders the payload piped mode
+            // would, and the transport detail stays on stderr.
+            expect(result.status).toBe(0);
+            expect(result.stdout).toContain('claude-fallback-model');
             expect(result.stderr).toContain('ccstatusline-ipc');
         } finally {
             fs.rmSync(runtimeDir, { recursive: true, force: true });
+            fs.rmSync(home, { recursive: true, force: true });
         }
     });
 
-    it('attempts a lazy start when no daemon is running and autostart is on', async () => {
+    it('renders via the fallback after a failed lazy start attempt (#65)', async () => {
         const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-client-lazy-'));
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-client-home-'));
         try {
             // The lazy-start command records that it ran, then fails to
-            // produce a daemon: the client must still die with empty stdout
-            // (never a partial line), but the start was attempted.
+            // produce a daemon: the start was attempted, and the client
+            // degrades into the visible one-shot render instead of an
+            // empty line.
             const marker = path.join(runtimeDir, 'started');
-            const result = await runClient(runtimeDir, '{}', { CCSTATUSLINE_DAEMON_START: `touch ${marker}` });
+            const result = await runClient(
+                runtimeDir,
+                JSON.stringify({ model: { id: 'claude-lazy-model' }, cwd: '/tmp' }),
+                { CCSTATUSLINE_DAEMON_START: `touch ${marker}`, ...isolatedHomeEnv(home) }
+            );
 
             expect(fs.existsSync(marker)).toBe(true);
-            expect(result.status).not.toBe(0);
-            expect(result.stdout).toBe('');
+            expect(result.status).toBe(0);
+            expect(result.stdout).toContain('claude-lazy-model');
         } finally {
             fs.rmSync(runtimeDir, { recursive: true, force: true });
+            fs.rmSync(home, { recursive: true, force: true });
         }
     });
 
-    it('fails with empty stdout on a wrong token (HTTP 401) instead of printing the error body', async () => {
+    it('renders via the fallback on a wrong token (HTTP 401) instead of staying empty (#65)', async () => {
         const { daemon } = await start();
         fs.writeFileSync(daemon.discoveryPath, fs.readFileSync(daemon.discoveryPath, 'utf8').replace(daemon.token, 'a'.repeat(64)));
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-client-home-'));
 
-        const result = await runClient(daemon.runtimeDir, JSON.stringify({ model: { id: 'm' }, cwd: '/tmp' }));
+        try {
+            const result = await runClient(
+                daemon.runtimeDir,
+                JSON.stringify({ model: { id: 'claude-401-model' }, cwd: '/tmp' }),
+                isolatedHomeEnv(home)
+            );
 
-        expect(result.status).not.toBe(0);
-        expect(result.stdout).toBe('');
-        expect(result.stderr).toContain('ccstatusline-ipc');
+            expect(result.status).toBe(0);
+            expect(result.stdout).toContain('claude-401-model');
+            expect(result.stderr).toContain('ccstatusline-ipc');
+        } finally {
+            fs.rmSync(home, { recursive: true, force: true });
+        }
     });
 
-    it('fails with empty stdout when the discovery file names a dead socket', async () => {
+    it('renders via the fallback when the discovery file names a dead socket (#65)', async () => {
         const { daemon } = await start();
         // stop() unlinks the socket and the discovery file but keeps the
         // runtime dir; recreate only the discovery pointing at the dead socket.
@@ -196,22 +241,170 @@ describe('shell client end to end', () => {
             `socket=${daemon.socketPath}`,
             `token=${daemon.token}`
         ].join('\n') + '\n', { mode: 0o600 });
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-client-home-'));
 
-        const result = await runClient(daemon.runtimeDir, JSON.stringify({ model: { id: 'm' }, cwd: '/tmp' }), { CCSTATUSLINE_NO_AUTOSTART: '1' });
+        try {
+            const result = await runClient(
+                daemon.runtimeDir,
+                JSON.stringify({ model: { id: 'claude-dead-socket-model' }, cwd: '/tmp' }),
+                { CCSTATUSLINE_NO_AUTOSTART: '1', ...isolatedHomeEnv(home) }
+            );
 
-        expect(result.status).not.toBe(0);
-        expect(result.stdout).toBe('');
+            expect(result.status).toBe(0);
+            expect(result.stdout).toContain('claude-dead-socket-model');
+        } finally {
+            fs.rmSync(home, { recursive: true, force: true });
+        }
     });
 
-    it('refuses a discovery file with an unsupported protocol version', async () => {
+    it('renders via the fallback on an unsupported protocol version (#65)', async () => {
         const { daemon } = await start();
         fs.writeFileSync(daemon.discoveryPath, fs.readFileSync(daemon.discoveryPath, 'utf8').replace('protocol=1', 'protocol=99'));
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-client-home-'));
 
-        const result = await runClient(daemon.runtimeDir, JSON.stringify({ model: { id: 'm' }, cwd: '/tmp' }));
+        try {
+            // This failure happens before the payload is buffered, so the
+            // fallback consumes live stdin — the branch that must not have
+            // lost the payload to the earlier read.
+            const result = await runClient(
+                daemon.runtimeDir,
+                JSON.stringify({ model: { id: 'claude-protocol-model' }, cwd: '/tmp' }),
+                isolatedHomeEnv(home)
+            );
 
-        expect(result.status).not.toBe(0);
-        expect(result.stdout).toBe('');
-        expect(result.stderr).toContain('protocol');
+            expect(result.status).toBe(0);
+            expect(result.stdout).toContain('claude-protocol-model');
+            expect(result.stderr).toContain('protocol');
+        } finally {
+            fs.rmSync(home, { recursive: true, force: true });
+        }
+    });
+
+    it('prints a visible diagnostic when both the daemon and a local renderer are missing (#65)', async () => {
+        const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-client-bare-'));
+        // A copy of the client in an install root with neither dist/ nor
+        // src/: the fallback has nothing to exec, so the failure must still
+        // be visible on stdout rather than an empty line.
+        const binDir = path.join(runtimeDir, 'bin');
+        fs.mkdirSync(binDir);
+        const bareClient = path.join(binDir, 'ccstatusline-ipc');
+        fs.copyFileSync(clientPath, bareClient);
+
+        try {
+            const result = await runClient(runtimeDir, '{}', { CCSTATUSLINE_NO_AUTOSTART: '1' }, bareClient);
+
+            expect(result.status).toBe(1);
+            expect(result.stdout).toContain('⚠ ccstatusline');
+            expect(result.stderr).toContain('ccstatusline-ipc');
+        } finally {
+            fs.rmSync(runtimeDir, { recursive: true, force: true });
+        }
+    });
+
+    // v2 hardening: hermetic stub renderers instead of the real one. Each
+    // test copies the client into a fake install root whose dist/ renderer
+    // is a few lines of JS, so the fallback's branching (echo, crash,
+    // hang, missing node) is exercised in milliseconds.
+    function makeStubInstallRoot(dir: string, rendererSource: string): string {
+        const binDir = path.join(dir, 'bin');
+        const distDir = path.join(dir, 'dist');
+        fs.mkdirSync(binDir);
+        fs.mkdirSync(distDir);
+        fs.copyFileSync(clientPath, path.join(binDir, 'ccstatusline-ipc'));
+        fs.writeFileSync(path.join(distDir, 'ccstatusline.js'), rendererSource);
+        return path.join(binDir, 'ccstatusline-ipc');
+    }
+
+    it('renders through an echo stub dist renderer', async () => {
+        const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-stub-echo-'));
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-client-home-'));
+        try {
+            const result = await runClient(
+                runtimeDir,
+                JSON.stringify({ model: { id: 'claude-stub-echo-model' }, cwd: '/tmp' }),
+                { CCSTATUSLINE_NO_AUTOSTART: '1', ...isolatedHomeEnv(home) },
+                makeStubInstallRoot(runtimeDir, 'process.stdin.pipe(process.stdout);\n')
+            );
+
+            expect(result.status).toBe(0);
+            expect(result.stdout).toContain('claude-stub-echo-model');
+            expect(result.stdout).not.toContain('⚠');
+        } finally {
+            fs.rmSync(runtimeDir, { recursive: true, force: true });
+            fs.rmSync(home, { recursive: true, force: true });
+        }
+    });
+
+    it('prints the diagnostic alone when the renderer is found but fails', async () => {
+        const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-stub-fail-'));
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-client-home-'));
+        try {
+            const result = await runClient(
+                runtimeDir,
+                JSON.stringify({ model: { id: 'claude-stub-fail-model' }, cwd: '/tmp' }),
+                { CCSTATUSLINE_NO_AUTOSTART: '1', ...isolatedHomeEnv(home) },
+                makeStubInstallRoot(runtimeDir, 'process.exit(3);\n')
+            );
+
+            // A renderer that produces output and then dies must not leak a
+            // partial line: stdout carries the diagnostic and nothing else.
+            expect(result.status).toBe(1);
+            expect(result.stdout).toContain('⚠ ccstatusline');
+            expect(result.stdout).not.toContain('claude-stub-fail-model');
+        } finally {
+            fs.rmSync(runtimeDir, { recursive: true, force: true });
+            fs.rmSync(home, { recursive: true, force: true });
+        }
+    });
+
+    it('bounds a hung renderer with the total-deadline watchdog', async () => {
+        const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-stub-hang-'));
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-client-home-'));
+        try {
+            const result = await runClient(
+                runtimeDir,
+                JSON.stringify({ model: { id: 'claude-stub-hang-model' }, cwd: '/tmp' }),
+                { CCSTATUSLINE_NO_AUTOSTART: '1', CCSTATUSLINE_IPC_TIMEOUT: '1', ...isolatedHomeEnv(home) },
+                makeStubInstallRoot(runtimeDir, 'setTimeout(function () {}, 600000);\n')
+            );
+
+            // The run itself completes: the watchdog killed the renderer at
+            // the 1s deadline instead of blocking on it forever.
+            expect(result.status).toBe(1);
+            expect(result.stdout).toContain('⚠ ccstatusline');
+        } finally {
+            fs.rmSync(runtimeDir, { recursive: true, force: true });
+            fs.rmSync(home, { recursive: true, force: true });
+        }
+    });
+
+    it('runs the dist bundle under bun when node is not on PATH', async () => {
+        const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-stub-bunly-'));
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-client-home-'));
+        // A PATH whose only runtime is `bun`: bun-only installs (bunx,
+        // bun add -g) ship dist/ without node. process.execPath under the
+        // bun test runner is the bun binary itself.
+        const fakeBin = path.join(runtimeDir, 'fakebin');
+        fs.mkdirSync(fakeBin);
+        fs.symlinkSync(process.execPath, path.join(fakeBin, 'bun'));
+        try {
+            const result = await runClient(
+                runtimeDir,
+                JSON.stringify({ model: { id: 'claude-bunly-model' }, cwd: '/tmp' }),
+                {
+                    CCSTATUSLINE_NO_AUTOSTART: '1',
+                    PATH: `${fakeBin}:/bin:/usr/bin`,
+                    ...isolatedHomeEnv(home)
+                },
+                makeStubInstallRoot(runtimeDir, 'process.stdin.pipe(process.stdout);\n')
+            );
+
+            expect(result.status).toBe(0);
+            expect(result.stdout).toContain('claude-bunly-model');
+        } finally {
+            fs.rmSync(runtimeDir, { recursive: true, force: true });
+            fs.rmSync(home, { recursive: true, force: true });
+        }
     });
 });
 
