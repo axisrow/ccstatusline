@@ -295,12 +295,8 @@ describe('terminal utils', () => {
         process.env.COLUMNS = value;
 
         mockExecFileSync.mockImplementation((file: string, args: string[]) => {
-            if (file === 'ps' && args.join(' ') === `-o ppid= -p ${process.pid}`) {
-                return '1234\n';
-            }
-
-            if (file === 'ps' && args.join(' ') === '-o tty= -p 1234') {
-                return 'ttys001\n';
+            if (file === 'ps' && args.join(' ') === `-o ppid= -o tty= -p ${process.ppid}`) {
+                return '1234 ttys001\n';
             }
 
             if (file === 'stty' && args.join(' ') === '-F /dev/ttys001 size') {
